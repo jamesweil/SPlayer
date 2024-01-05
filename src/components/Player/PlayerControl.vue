@@ -1,7 +1,12 @@
 <!-- 播放器 - 控制面板 -->
 <template>
   <Transition name="fade" mode="out-in">
-    <div class="control" @mousemove="controlMove" @mouseenter="controlEnter">
+    <div
+      v-show="playerControlShow"
+      class="control"
+      @mousemove="controlMove"
+      @mouseenter="controlEnter"
+    >
       <div class="left">
         <!-- 喜欢歌曲 -->
         <n-icon
@@ -69,6 +74,7 @@
           <n-button
             :loading="playLoading"
             :keyboard="false"
+            :focusable="false"
             class="play-control"
             strong
             secondary
@@ -132,10 +138,10 @@
               playHeartbeatMode
                 ? 'heartbit'
                 : playSongMode === 'normal'
-                ? 'repeat-list'
-                : playSongMode === 'random'
-                ? 'shuffle'
-                : 'repeat-song'
+                  ? 'repeat-list'
+                  : playSongMode === 'random'
+                    ? 'shuffle'
+                    : 'repeat-song'
             "
             isSpecial
           />

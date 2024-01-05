@@ -31,15 +31,21 @@
     <div class="player">
       <!-- 歌曲信息 -->
       <div class="info">
-        <div class="cover" @click.stop="openFullPlayer">
-          <Transition name="fade" mode="out-in">
+        <Transition name="fade" mode="out-in">
+          <div
+            :key="`${music.getPlaySongData?.id}-${playCoverType}`"
+            :class="['cover', playCoverType]"
+            @click.stop="openFullPlayer"
+          >
             <n-image
-              :key="music.getPlaySongData?.id"
               :src="
                 music.getPlaySongData?.coverSize?.s ||
                 music.getPlaySongData?.cover ||
                 music.getPlaySongData?.localCover
               "
+              :style="{
+                animationPlayState: playState ? 'running' : 'paused',
+              }"
               class="cover-img"
               preview-disabled
               @load="
@@ -54,12 +60,12 @@
                 </div>
               </template>
             </n-image>
-          </Transition>
-          <!-- 打开播放器 -->
-          <n-icon class="open" size="30">
-            <SvgIcon icon="pan-zoom-rounded" />
-          </n-icon>
-        </div>
+            <!-- 打开播放器 -->
+            <n-icon class="open" size="30">
+              <SvgIcon icon="pan-zoom-rounded" />
+            </n-icon>
+          </div>
+        </Transition>
         <div class="song-info">
           <div class="name">
             <n-text class="text">
@@ -177,6 +183,7 @@
         <!-- 播放暂停 -->
         <n-button
           :loading="playLoading"
+          :focusable="false"
           tag="div"
           type="primary"
           class="play-control"
@@ -221,10 +228,10 @@
                     playHeartbeatMode
                       ? 'heartbit'
                       : playSongMode === 'normal'
-                      ? 'repeat-list'
-                      : playSongMode === 'random'
-                      ? 'shuffle'
-                      : 'repeat-song'
+                        ? 'repeat-list'
+                        : playSongMode === 'random'
+                          ? 'shuffle'
+                          : 'repeat-song'
                   "
                   isSpecial
                 />
@@ -364,7 +371,7 @@ const {
   playSongMode,
   playHeartbeatMode,
 } = storeToRefs(status);
-const { showYrc, bottomLyricShow, showSider, showPlaylistCount, showSpectrums } =
+const { showYrc, bottomLyricShow, showSider, showPlaylistCount, showSpectrums, playCoverType } =
   storeToRefs(settings);
 
 // 子组件
@@ -633,6 +640,39 @@ watch(
             opacity: 1;
             transform: scale(1);
             transition: opacity 0.3s ease-in-out;
+          }
+        }
+        &.record {
+          width: 60px;
+          height: 60px;
+          max-height: 60px;
+          min-height: 60px;
+          max-width: 60px;
+          min-width: 60px;
+          .cover-img {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            animation: playerCoverRotate 18s linear infinite;
+            background: no-repeat url("/images/pic/record.png?assest") center;
+            :deep(img) {
+              width: 40px;
+              height: 40px;
+              min-width: 40px;
+              max-width: 40px;
+              border-radius: 50%;
+              box-shadow: 0px 0px 1px 1px rgba(255, 255, 255, 0.06);
+            }
+          }
+          &:hover {
+            :deep(img) {
+              transform: none;
+              filter: brightness(0.5);
+            }
+            .open {
+              transform: scale(0.8);
+            }
           }
         }
       }

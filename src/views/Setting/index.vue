@@ -77,6 +77,13 @@
           <n-switch v-model:value="showSider" :round="false" />
         </n-card>
         <n-card class="set-item">
+          <div class="name">
+            侧边栏展示封面
+            <n-text class="tip">侧边栏歌单是否展示歌单封面</n-text>
+          </div>
+          <n-switch v-model:value="siderShowCover" :disabled="!showSider" :round="false" />
+        </n-card>
+        <n-card class="set-item">
           <div class="name">显示搜索历史</div>
           <n-switch v-model:value="searchHistory" :round="false" />
         </n-card>
@@ -213,6 +220,13 @@
           <n-switch v-model:value="memorySeek" :disabled="autoPlay" :round="false" />
         </n-card>
         <n-card class="set-item">
+          <div class="name">
+            音乐资源自动缓存
+            <n-text class="tip"> 可能会造成加载缓慢，将在下一首播放或刷新时生效 </n-text>
+          </div>
+          <n-switch v-model:value="useMusicCache" :round="false" />
+        </n-card>
+        <n-card class="set-item">
           <div class="name">音乐渐入渐出</div>
           <n-switch v-model:value="songVolumeFade" :round="false" />
         </n-card>
@@ -273,8 +287,8 @@
                 playerBackgroundType === "animation"
                   ? "流体效果，较消耗性能，请谨慎开启"
                   : playerBackgroundType === "blur"
-                  ? "将封面模糊处理为背景"
-                  : "提取封面主色为渐变色"
+                    ? "将封面模糊处理为背景"
+                    : "提取封面主色为渐变色"
               }}
             </n-text>
           </div>
@@ -595,6 +609,8 @@ const {
   playSearch,
   showPlaylistCount,
   showSpectrums,
+  siderShowCover,
+  useMusicCache,
 } = storeToRefs(settings);
 
 // 标签页数据
