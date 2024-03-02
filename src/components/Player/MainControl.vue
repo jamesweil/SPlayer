@@ -209,7 +209,7 @@
       <Transition name="fade" mode="out-in">
         <div :key="playMode" class="menu">
           <!-- 时间进度 -->
-          <div class="time">
+          <div class="time hidden">
             <n-text class="played" depth="3">{{ playTimeData.played }}</n-text>
             <n-text depth="3">{{ playTimeData.durationTime }}</n-text>
           </div>
@@ -221,27 +221,30 @@
             trigger="hover"
             @select="playModeChange"
           >
-            <div class="mode" @click.stop @dblclick.stop>
-              <n-icon size="22">
-                <SvgIcon
-                  :icon="
-                    playHeartbeatMode
-                      ? 'heartbit'
-                      : playSongMode === 'normal'
-                        ? 'repeat-list'
-                        : playSongMode === 'random'
-                          ? 'shuffle'
-                          : 'repeat-song'
-                  "
-                  isSpecial
-                />
-              </n-icon>
-            </div>
+            <n-icon
+              class="mode hidden"
+              size="22"
+              @click.stop="playModeChange(false)"
+              @dblclick.stop
+            >
+              <SvgIcon
+                :icon="
+                  playHeartbeatMode
+                    ? 'heartbit'
+                    : playSongMode === 'normal'
+                      ? 'repeat-list'
+                      : playSongMode === 'random'
+                        ? 'shuffle'
+                        : 'repeat-song'
+                "
+                isSpecial
+              />
+            </n-icon>
           </n-dropdown>
           <!-- 倍速 -->
           <n-popover :show-arrow="false" trigger="hover" placement="top-end" raw>
             <template #trigger>
-              <div class="speed" @click.stop="(playRate = 1), setRate(1)" @dblclick.stop>
+              <div class="speed hidden" @click.stop="(playRate = 1), setRate(1)" @dblclick.stop>
                 <n-icon v-if="playRate === 1" size="22">
                   <SvgIcon icon="speed-rounded" />
                 </n-icon>
@@ -269,7 +272,12 @@
           <!-- 音量 -->
           <n-popover trigger="hover" :show-arrow="false" raw>
             <template #trigger>
-              <n-icon class="volume" size="22" @click.stop="setVolumeMute" @wheel="changeVolume">
+              <n-icon
+                class="volume hidden"
+                size="22"
+                @click.stop="setVolumeMute"
+                @wheel="changeVolume"
+              >
                 <SvgIcon v-if="playVolume === 0" icon="no-sound-rounded" />
                 <SvgIcon
                   v-else-if="playVolume > 0 && playVolume < 0.4"
@@ -288,7 +296,7 @@
                 padding: '10px 0',
                 width: '50px',
               }"
-              class="slider-content"
+              class="slider-content hidden"
               @wheel="changeVolume"
             >
               <n-slider
@@ -386,14 +394,14 @@ const renderIcon = (icon, isSpecial = false) => {
 // 播放模式数据
 const playModeOptions = ref([
   {
-    label: "列表循环",
-    key: "normal",
-    icon: renderIcon("repeat-list", true),
-  },
-  {
     label: "单曲循环",
     key: "repeat",
     icon: renderIcon("repeat-song", true),
+  },
+  {
+    label: "列表循环",
+    key: "normal",
+    icon: renderIcon("repeat-list", true),
   },
   {
     label: "随机播放",
@@ -499,6 +507,11 @@ const changePlayIndexDebounce = debounce(async (type, id) => {
 
 // 播放模式切换
 const playModeChange = (mode) => {
+  const modeMap = {
+    normal: "random",
+    random: "shuffle",
+    shuffle: "normal",
+  };
   // 关闭心动模式
   if (playHeartbeatMode.value) {
     playHeartbeatMode.value = false;
@@ -508,7 +521,11 @@ const playModeChange = (mode) => {
     playListOld.value = [];
   }
   // 切换模式
-  playSongMode.value = mode;
+  if (mode) {
+    playSongMode.value = mode;
+  } else {
+    playSongMode.value = modeMap[playSongMode.value] || "normal";
+  }
 };
 
 // 音量条鼠标滚动
@@ -643,12 +660,6 @@ watch(
           }
         }
         &.record {
-          width: 60px;
-          height: 60px;
-          max-height: 60px;
-          min-height: 60px;
-          max-width: 60px;
-          min-width: 60px;
           .cover-img {
             display: flex;
             align-items: center;
@@ -857,6 +868,31 @@ watch(
         backdrop-filter: blur(20px);
         .n-base-slot-machine {
           color: var(--main-color);
+        }
+      }
+    }
+    @media (max-width: 900px) {
+      .menu {
+        .time {
+          display: none;
+        }
+      }
+    }
+    @media (max-width: 700px) {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      .control {
+        margin-left: auto;
+        .play-prev,
+        .play-next {
+          display: none;
+        }
+      }
+      .menu {
+        .hidden {
+          display: none;
         }
       }
     }
