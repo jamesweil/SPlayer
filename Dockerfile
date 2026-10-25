@@ -1,29 +1,41 @@
 # build
-FROM node:18-alpine as builder
+FROM node:22-alpine AS builder
 
-RUN apk update && apk add --no-cache git
+# install pnpm
+RUN npm install -g pnpm
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY package.json pnpm-lock.yaml ./
 
-RUN npm install
+# skip postinstall
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
 COPY . .
 
+# add .env.example to .env
 RUN [ ! -e ".env" ] && cp .env.example .env || true
 
-RUN npm run build
+# skip native build for web deployment
+ENV SKIP_NATIVE_BUILD=true
+RUN npx electron-vite build
 
 # nginx
-FROM nginx:1.25.3-alpine-slim as app
+FROM nginx:1.27-alpine-slim AS app
 
 COPY --from=builder /app/out/renderer /usr/share/nginx/html
 
 COPY --from=builder /app/nginx.conf /etc/nginx/conf.d/default.conf
 
-RUN apk add --no-cache npm
+COPY --from=builder /app/docker-entrypoint.sh /docker-entrypoint.sh
 
-RUN npm install -g NeteaseCloudMusicApi
+RUN apk add --no-cache npm python3 \
+    && npm install -g @unblockneteasemusic/server @neteasecloudmusicapienhanced/api \
+    && sed -i 's/\r$//' /docker-entrypoint.sh \
+    && chmod +x /docker-entrypoint.sh
 
-CMD nginx && npx NeteaseCloudMusicApi
+ENV NODE_TLS_REJECT_UNAUTHORIZED=0
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+
+CMD ["npx", "@neteasecloudmusicapienhanced/api"]

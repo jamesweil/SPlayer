@@ -1,25 +1,15 @@
 <template>
-  <div class="like-artists">
-    <Transition name="fade" mode="out-in">
-      <div v-if="userLikeData.artists?.length" class="list">
-        <!-- 列表 -->
-        <MainCover :data="userLikeData.artists" type="artist" columns="3 s:4 m:5 l:6" />
-      </div>
-      <n-empty
-        v-else
-        description="当前暂无收藏歌手"
-        class="tip"
-        style="margin-top: 60px"
-        size="large"
-      />
-    </Transition>
+  <div class="like-type">
+    <ArtistList
+      :data="dataStore.userLikeData.artists"
+      :hiddenCover="settingStore.hiddenCovers.like"
+    />
   </div>
 </template>
 
-<script setup>
-import { storeToRefs } from "pinia";
-import { siteData } from "@/stores";
+<script setup lang="ts">
+import { useDataStore, useSettingStore } from "@/stores";
 
-const data = siteData();
-const { userLikeData } = storeToRefs(data);
+const dataStore = useDataStore();
+const settingStore = useSettingStore();
 </script>

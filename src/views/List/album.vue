@@ -1,183 +1,44 @@
-<!-- 专辑页面 -->
+<!-- 专辑列表 -->
 <template>
-  <div v-if="albumId && Number(albumId)" class="album">
-    <Transition name="fade" mode="out-in">
-      <div v-if="albumDetail && Object.keys(albumDetail)?.length" class="detail">
-        <div class="cover">
-          <!-- 封面 -->
-          <n-image
-            :src="albumDetail.coverSize.l"
-            :previewed-img-props="{ style: { borderRadius: '8px' } }"
-            :preview-src="albumDetail.cover"
-            class="cover-img"
-            show-toolbar-tooltip
-            @load="
-              (e) => {
-                e.target.style.opacity = 1;
-              }
-            "
-          >
-            <template #placeholder>
-              <div class="cover-loading">
-                <img class="loading-img" src="/images/pic/song.jpg?assest" alt="song" />
-              </div>
-            </template>
-          </n-image>
-          <!-- 封面背板 -->
-          <n-image :src="albumDetail.coverSize.m" class="cover-shadow" preview-disabled />
-        </div>
-        <div class="data">
-          <n-text class="name">
-            {{ albumDetail.name || "未知专辑" }}
-          </n-text>
-          <n-text v-if="albumDetail.alia" class="alia" depth="3">{{ albumDetail.alia }}</n-text>
-          <div v-if="albumDetail.artists" class="creator">
-            <n-text
-              v-for="(item, index) in albumDetail.artists"
-              :key="index"
-              class="ar"
-              @click="router.push(`/artist?id=${item.id}`)"
-            >
-              {{ item.name }}
-            </n-text>
-          </div>
-          <!-- 标签 -->
-          <n-flex v-if="albumDetail?.tags" class="tags">
-            <n-tag
-              v-for="(item, index) in albumDetail.tags"
-              :key="index"
-              :bordered="false"
-              class="pl-tags"
-              round
-              @click="
-                router.push({
-                  path: '/discover/albums',
-                  query: { cat: item },
-                })
-              "
-            >
-              {{ item }}
-            </n-tag>
-          </n-flex>
-          <!-- 数量 -->
-          <n-flex class="num">
-            <div v-if="albumDetail.count" class="num-item">
-              <n-icon depth="3" size="18">
-                <SvgIcon icon="music-note" />
-              </n-icon>
-              <n-text depth="3">{{ albumDetail.count }}</n-text>
-            </div>
-            <div v-if="albumDetail.share" class="num-item">
-              <n-icon depth="3" size="18">
-                <SvgIcon icon="share" />
-              </n-icon>
-              <n-text depth="3">{{ formatNumber(albumDetail?.share || 0) }}</n-text>
-            </div>
-            <div v-if="albumDetail.publishTime" class="num-item">
-              <n-icon depth="3" size="18">
-                <SvgIcon icon="clock" />
-              </n-icon>
-              <n-text depth="3">{{ getTimestampTime(albumDetail.publishTime) }} 发布</n-text>
-            </div>
-          </n-flex>
-          <!-- 简介 -->
-          <n-ellipsis
-            v-if="albumDetail.description"
-            :tooltip="false"
-            class="description"
-            expand-trigger="click"
-            line-clamp="2"
-          >
-            <n-text depth="3">{{ albumDetail.description }}</n-text>
-          </n-ellipsis>
-          <n-text v-else class="description">太懒了吧，连简介都没写</n-text>
-        </div>
-      </div>
-      <div v-else class="detail">
-        <n-skeleton class="cover" />
-        <div class="data">
-          <n-skeleton :repeat="4" text />
-        </div>
-      </div>
-    </Transition>
-    <!-- 功能区 -->
-    <n-flex class="menu" justify="space-between">
-      <n-flex class="left">
+  <div class="album-list">
+    <ListDetail
+      :detail-data="detailData?.id === albumId ? detailData : null"
+      :list-data="detailData?.id === albumId ? listData : []"
+      :loading="showLoading"
+      :list-scrolling="listScrolling"
+      :search-value="searchValue"
+      :config="listConfig"
+      :play-button-text="playButtonText"
+      :more-options="moreOptions"
+      @update:search-value="handleSearchUpdate"
+      @play-all="playAllSongs"
+      @tab-change="handleTabChange"
+    >
+      <template #action-buttons>
         <n-button
-          :disabled="albumData === 'empty'"
           :focusable="false"
-          type="primary"
-          class="play"
-          tag="div"
-          circle
           strong
           secondary
-          @click="playAllSongs(albumData)"
-        >
-          <template #icon>
-            <n-icon size="32">
-              <SvgIcon icon="play-arrow-rounded" />
-            </n-icon>
-          </template>
-        </n-button>
-        <n-button
-          :focusable="false"
-          class="like"
-          size="large"
-          tag="div"
           round
-          strong
-          secondary
-          @click="likeOrDislike(albumId)"
+          @click="toLikeAlbum(albumId, !isLikeAlbum)"
         >
           <template #icon>
-            <n-icon>
-              <SvgIcon
-                :icon="isLikeOrDislike(albumId) ? 'favorite-outline-rounded' : 'favorite-rounded'"
-              />
-            </n-icon>
+            <SvgIcon :name="isLikeAlbum ? 'Favorite' : 'FavoriteBorder'" />
           </template>
-          {{ isLikeOrDislike(albumId) ? "收藏专辑" : "取消收藏" }}
+          {{ isLikeAlbum ? "取消收藏" : "收藏专辑" }}
         </n-button>
-        <n-dropdown :options="moreOptions" trigger="hover" placement="bottom-start">
-          <n-button :focusable="false" class="more" size="large" tag="div" circle strong secondary>
-            <template #icon>
-              <n-icon>
-                <SvgIcon icon="format-list-bulleted" />
-              </n-icon>
-            </template>
-          </n-button>
-        </n-dropdown>
-      </n-flex>
-      <n-flex class="right">
-        <!-- 模糊搜索 -->
-        <Transition name="fade" mode="out-in">
-          <n-input
-            v-if="albumData !== 'empty' && albumData?.length"
-            v-model:value="searchValue"
-            :input-props="{ autoComplete: false }"
-            class="search"
-            placeholder="模糊搜索"
-            clearable
-            @input="localSearch"
-          >
-            <template #prefix>
-              <n-icon size="18">
-                <SvgIcon icon="search-rounded" />
-              </n-icon>
-            </template>
-          </n-input>
-        </Transition>
-      </n-flex>
-    </n-flex>
-    <!-- 列表 -->
-    <Transition name="fade" mode="out-in">
-      <SongList v-if="!searchValue" :data="albumData" :sourceId="albumId" :showAlbum="false" />
+      </template>
+    </ListDetail>
+    <!-- 歌曲列表 -->
+    <template v-if="currentTab === 'songs'">
       <SongList
-        v-else-if="searchData?.length"
-        :data="searchData"
-        :sourceId="albumId"
-        :showAlbum="false"
+        v-if="!searchValue || searchData?.length"
+        :data="detailData?.id === albumId ? displayData : []"
+        :loading="loading"
+        :height="songListHeight"
+        :doubleClickAction="searchData?.length ? 'add' : 'all'"
+        hidden-album
+        @scroll="handleListScroll"
       />
       <n-empty
         v-else
@@ -186,391 +47,246 @@
         size="large"
       >
         <template #icon>
-          <n-icon>
-            <SvgIcon icon="search-off" />
-          </n-icon>
+          <SvgIcon name="SearchOff" />
         </template>
       </n-empty>
-    </Transition>
-  </div>
-  <div v-else class="title">
-    <n-text class="key">参数不完整</n-text>
-    <n-button :focusable="false" class="back" strong secondary @click="router.go(-1)">
-      返回上一页
-    </n-button>
+    </template>
+    <!-- 评论 -->
+    <ListComment
+      v-show="currentTab === 'comments'"
+      :id="albumId"
+      :type="3"
+      :height="songListHeight"
+    />
   </div>
 </template>
 
-<script setup>
-import { NIcon } from "naive-ui";
-import { useRouter } from "vue-router";
-import { storeToRefs } from "pinia";
-import { siteData } from "@/stores";
-import { getSongDetail } from "@/api/song";
-import { getAlbumDetail, likeAlbum } from "@/api/album";
-import { formatNumber, fuzzySearch } from "@/utils/helper";
-import { getTimestampTime } from "@/utils/timeTools";
-import { playAllSongs } from "@/utils/Player";
-import { isLogin } from "@/utils/auth";
-import debounce from "@/utils/debounce";
-import formatData from "@/utils/formatData";
-import SvgIcon from "@/components/Global/SvgIcon";
+<script setup lang="ts">
+import type { DropdownOption } from "naive-ui";
+import { songDetail } from "@/api/song";
+import { albumDetail, albumDetailDynamic } from "@/api/album";
+import { formatCoverList, formatSongsList } from "@/utils/format";
+import { renderIcon, copyData, getShareUrl } from "@/utils/helper";
+import { openBatchList } from "@/utils/modal";
+import { useDataStore } from "@/stores";
+import { toLikeAlbum } from "@/utils/auth";
+import { useListDetail } from "@/composables/List/useListDetail";
+import { useListSearch } from "@/composables/List/useListSearch";
+import { useListScroll } from "@/composables/List/useListScroll";
+import { useListActions } from "@/composables/List/useListActions";
+import { useListDataCache, type ListCacheData } from "@/composables/List/useListDataCache";
+import ListComment from "@/components/List/ListComment.vue";
 
 const router = useRouter();
-const data = siteData();
-const { userLikeData } = storeToRefs(data);
+const dataStore = useDataStore();
+
+const { saveCache, loadCache, checkNeedsUpdate } = useListDataCache();
+
+// 是否激活
+const isActivated = ref<boolean>(false);
+
+const {
+  detailData,
+  listData,
+  loading,
+  getSongListHeight,
+  resetData,
+  setDetailData,
+  setListData,
+  setLoading,
+} = useListDetail();
+const { searchValue, searchData, displayData, clearSearch, performSearch } =
+  useListSearch(listData);
+const { listScrolling, handleListScroll, resetScroll } = useListScroll();
+const { playAllSongs: playAllSongsAction } = useListActions();
 
 // 专辑 ID
-const albumId = ref(router.currentRoute.value.query.id || null);
+const oldAlbumId = ref<number>(0);
+const albumId = computed<number>(() => Number(router.currentRoute.value.query.id as string));
 
-// 专辑数据
-const albumDetail = ref(null);
-const albumData = ref(null);
+// 当前正在请求的专辑 ID，用于防止竞态条件
+const currentRequestId = ref<number>(0);
 
-// 模糊搜索数据
-const searchValue = ref(null);
-const searchData = ref([]);
+// 是否处于收藏专辑
+const isLikeAlbum = computed(() =>
+  dataStore.userLikeData.albums.some((album) => album.id === detailData.value?.id),
+);
 
-// 图标渲染
-const renderIcon = (icon) => {
-  return () => h(NIcon, null, { default: () => h(SvgIcon, { icon }, null) });
+// 列表高度
+const songListHeight = computed(() => getSongListHeight(listScrolling.value));
+
+// 当前 tab
+const currentTab = ref<"songs" | "comments">("songs");
+
+// 列表配置
+const listConfig = {
+  titleType: "ellipsis" as const,
+  showCoverMask: false,
+  showPlayCount: false,
+  showArtist: true,
+  showCreator: false,
+  showCount: true,
 };
 
-// 更多操作数据
-const moreOptions = ref([
+// 是否显示加载状态
+const showLoading = computed(() => listData.value.length === 0 && loading.value);
+
+// 播放按钮文本
+const playButtonText = computed(() => {
+  if (showLoading.value) {
+    return "加载中...";
+  }
+  return "播放";
+});
+
+// 更多操作
+const moreOptions = computed<DropdownOption[]>(() => [
   {
-    label: "打开源页面链接",
-    key: "open",
+    label: "刷新缓存",
+    key: "refresh",
     props: {
-      onclick: () => {
-        const id = albumId.value;
-        if (id) window.open(`https://music.163.com/#/album?id=${id}`);
+      onClick: () => getAlbumDetail(albumId.value, true),
+    },
+    icon: renderIcon("Refresh"),
+  },
+  {
+    label: "批量操作",
+    key: "batch",
+    props: {
+      onClick: () => {
+        openBatchList(displayData.value, false, isLikeAlbum.value ? albumId.value : undefined);
       },
     },
-    icon: renderIcon("link"),
+    icon: renderIcon("Batch"),
+  },
+  {
+    label: "复制分享链接",
+    key: "copy",
+    props: {
+      onClick: () => copyData(getShareUrl("album", albumId.value), "已复制分享链接到剪贴板"),
+    },
+    icon: renderIcon("Share"),
+  },
+  {
+    label: "打开源页面",
+    key: "open",
+    props: {
+      onClick: () => {
+        window.open(`https://music.163.com/#/album?id=${albumId.value}`);
+      },
+    },
+    icon: renderIcon("Link"),
   },
 ]);
 
-// 获取专辑信息
-const getAlbumAllData = async (id, justDetail = false) => {
-  if (!id) return false;
-  // 清空数据
-  albumDetail.value = null;
-  if (!justDetail) albumData.value = null;
-  // 获取数据
-  const detail = await getAlbumDetail(id);
-  // 基础信息
-  albumDetail.value = formatData(detail.album, "album")[0];
-  // 是否终止
-  if (justDetail) return true;
-  // 全部歌曲
-  const ids = detail.songs.map((song) => song.id).join(",");
-  const songsDetail = await getSongDetail(ids);
-  albumData.value = formatData(songsDetail.songs, "song");
+// 获取专辑基础信息
+const getAlbumDetail = async (id: number, refresh: boolean = false) => {
+  if (!id) return;
+  // 设置当前请求的专辑 ID，用于防止竞态条件
+  currentRequestId.value = id;
+  setLoading(true);
+  clearSearch();
+  // 尝试读取缓存
+  if (!refresh) {
+    const cached = await loadCache("album", id);
+    if (cached) {
+      setDetailData(cached.detail);
+      setListData(cached.songs);
+      setLoading(false);
+      // 获取专辑评论等动态数据
+      fetchAlbumDynamic(id);
+      // 后台检查更新
+      backgroundCheck(id, cached);
+      return;
+    }
+  }
+  if (!refresh && detailData.value?.id !== id) resetData(true);
+  // 获取专辑详情
+  const detail = await albumDetail(id);
+  // 检查是否仍然是当前请求的专辑
+  if (currentRequestId.value !== id) return;
+  setDetailData(formatCoverList(detail.album)[0]);
+  // 获取专辑评论等动态数据
+  fetchAlbumDynamic(id);
+  // 获取专辑歌曲
+  const ids: number[] = detail.songs.map((song: any) => song.id as number);
+  const result = await songDetail(ids);
+  // 再次检查是否仍然是当前请求的专辑
+  if (currentRequestId.value !== id) return;
+  const songs = formatSongsList(result.songs);
+  setListData(songs);
+  // 保存缓存
+  saveCache("album", id, detailData.value!, songs);
+  setLoading(false);
 };
 
-// 歌曲模糊搜索
-const localSearch = debounce((val) => {
-  const searchValue = val?.trim();
-  // 是否为空
-  if (!searchValue || searchValue === "") {
-    return true;
-  }
-  // 返回结果
-  const result = fuzzySearch(searchValue, albumData.value);
-  searchData.value = result;
-}, 300);
-
-// 判断收藏还是取消
-const isLikeOrDislike = (id) => {
-  const albums = userLikeData.value.albums;
-  if (albums.length) {
-    return !albums.some((item) => item.id === Number(id));
-  }
-  return true;
-};
-
-// 收藏 / 取消收藏歌单
-const likeOrDislike = debounce(async (id) => {
+// 后台检查更新
+const backgroundCheck = async (id: number, cached: ListCacheData) => {
   try {
-    if (!isLogin()) return $message.warning("请登录后使用");
-    const type = isLikeOrDislike(id) ? 1 : 2;
-    const result = await likeAlbum(type, id);
-    if (result.code === 200) {
-      $message.success((type === 1 ? "收藏" : "取消收藏") + "成功");
-      // 更新用户专辑
-      await data.setUserLikeAlbums();
-    } else {
-      $message.error((type === 1 ? "收藏" : "取消收藏") + "失败，请重试");
+    const detail = await albumDetail(id);
+    // 检查是否仍然是当前请求的专辑
+    if (currentRequestId.value !== id) return;
+    const latestDetail = formatCoverList(detail.album)[0];
+    if (checkNeedsUpdate(cached, latestDetail)) {
+      console.log("Album cache expired, refreshing...");
+      getAlbumDetail(id, true);
     }
-  } catch (error) {
-    console.error("收藏出错：", error);
-    $message.error("收藏操作出现错误");
+  } catch (e) {
+    console.error("Album background check failed", e);
   }
+};
+
+// 处理搜索更新
+const handleSearchUpdate = (val: string) => {
+  searchValue.value = val;
+  performSearch(val);
+};
+
+// 处理 tab 切换
+const handleTabChange = (value: "songs" | "comments") => {
+  currentTab.value = value;
+};
+
+// 获取专辑动态信息（评论数等）
+const fetchAlbumDynamic = async (id: number) => {
+  try {
+    const result = await albumDetailDynamic(id);
+    if (!detailData.value || detailData.value.id !== id) return;
+    if (typeof result.commentCount === "number") {
+      detailData.value.commentCount = result.commentCount;
+    }
+  } catch {
+    // 忽略错误
+  }
+};
+
+// 播放全部歌曲
+const playAllSongs = useDebounceFn(() => {
+  if (!detailData.value || !displayData.value?.length) return;
+  playAllSongsAction(displayData.value);
 }, 300);
 
-// 监听路由变化
-watch(
-  () => router.currentRoute.value,
-  (val) => {
-    if (val.name === "album") {
-      albumId.value = val.query?.id;
-      getAlbumAllData(albumId.value);
-    }
-  },
-);
+onBeforeRouteUpdate((to) => {
+  clearSearch();
+  currentTab.value = "songs";
+  const id = Number(to.query.id as string);
+  if (id) getAlbumDetail(id);
+});
 
-onBeforeMount(() => {
-  getAlbumAllData(albumId.value);
+onActivated(() => {
+  if (!isActivated.value) {
+    isActivated.value = true;
+  } else {
+    oldAlbumId.value = albumId.value;
+    getAlbumDetail(albumId.value, false);
+  }
+});
+
+onDeactivated(() => {
+  resetScroll();
+});
+
+onMounted(() => {
+  getAlbumDetail(albumId.value);
 });
 </script>
-
-<style lang="scss" scoped>
-.album {
-  .detail {
-    display: flex;
-    flex-direction: row;
-    align-items: stretch;
-    margin-bottom: 20px;
-    .cover {
-      position: relative;
-      display: flex;
-      width: 200px;
-      height: 200px;
-      min-width: 200px;
-      margin-right: 20px;
-      border-radius: 8px;
-      .cover-img {
-        width: 100%;
-        height: 100%;
-        border-radius: 8px;
-        z-index: 1;
-        transition:
-          filter 0.3s,
-          transform 0.3s;
-        :deep(img) {
-          width: 100%;
-          opacity: 0;
-          transition: opacity 0.35s ease-in-out;
-        }
-        &:active {
-          transform: scale(0.98);
-        }
-      }
-      .cover-shadow {
-        position: absolute;
-        top: 4px;
-        height: 100%;
-        width: 100%;
-        filter: blur(16px) opacity(0.6);
-        transform: scale(0.92, 0.96);
-        z-index: 0;
-        background-size: cover;
-        aspect-ratio: 1/1;
-      }
-    }
-    .data {
-      width: 100%;
-      .name {
-        font-size: 30px;
-        font-weight: bold;
-        -webkit-line-clamp: 2;
-      }
-      .alia {
-        margin-top: 4px;
-        font-size: 18px;
-      }
-      .creator {
-        margin-top: 8px;
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        .ar {
-          transition: color 0.3s;
-          cursor: pointer;
-          &:hover {
-            color: var(--main-color);
-          }
-          &::after {
-            content: "/";
-            margin: 0 4px;
-          }
-          &:last-child {
-            &::after {
-              display: none;
-            }
-          }
-        }
-      }
-      .tags {
-        margin-top: 12px;
-        .pl-tags {
-          font-size: 13px;
-          padding: 0 16px;
-          line-height: 0;
-          cursor: pointer;
-          transition:
-            transform 0.3s,
-            background-color 0.3s,
-            color 0.3s;
-          &:hover {
-            background-color: var(--main-second-color);
-            color: var(--main-color);
-          }
-          &:active {
-            transform: scale(0.95);
-          }
-        }
-      }
-      .num {
-        margin-top: 12px;
-        .num-item {
-          display: flex;
-          flex-direction: row;
-          align-items: center;
-          .n-icon {
-            margin-right: 4px;
-            // color: var(--main-color);
-          }
-        }
-      }
-      .description {
-        margin-top: 12px;
-        margin-left: 2px;
-        .n-text {
-          display: initial;
-        }
-      }
-      :deep(.n-skeleton) {
-        &:first-child {
-          width: 60%;
-          margin-top: 0;
-          height: 40px;
-        }
-        height: 30px;
-        margin-top: 12px;
-        border-radius: 8px;
-      }
-    }
-  }
-  .menu {
-    flex-wrap: nowrap;
-    align-items: center;
-    margin: 26px 0;
-    .left {
-      flex-wrap: nowrap;
-      align-items: center;
-      .play {
-        --n-width: 46px;
-        --n-height: 46px;
-      }
-    }
-    .right {
-      .search {
-        height: 40px;
-        width: 130px;
-        display: flex;
-        align-items: center;
-        border-radius: 40px;
-        transition:
-          width 0.3s,
-          background-color 0.3s;
-        &.n-input--focus {
-          width: 200px;
-        }
-      }
-    }
-  }
-  @media (max-width: 700px) {
-    .detail {
-      .cover {
-        width: 140px;
-        height: 140px;
-        min-width: 140px;
-      }
-      .data {
-        .name {
-          font-size: 20px;
-          margin-bottom: 4px;
-        }
-        .alia {
-          font-size: 16px;
-        }
-        .creator {
-          .n-avatar {
-            width: 20px;
-            height: 20px;
-            margin-right: 6px;
-          }
-          .nickname {
-            font-size: 12px;
-          }
-          .create-time {
-            margin-left: 6px;
-            font-size: 12px;
-          }
-        }
-        .tags {
-          .pl-tags {
-            font-size: 12px;
-            padding: 0 12px;
-          }
-        }
-        .num,
-        .description {
-          display: none !important;
-        }
-      }
-    }
-    .menu {
-      margin: 20px 0;
-      .left {
-        .play {
-          --n-width: 40px;
-          --n-height: 40px;
-          .n-icon {
-            font-size: 22px !important;
-          }
-        }
-        .like {
-          --n-height: 36px;
-          --n-font-size: 13px;
-          --n-padding: 0 16px;
-          --n-icon-size: 18px;
-          :deep(.n-button__icon) {
-            margin: 0;
-          }
-          :deep(.n-button__content) {
-            display: none;
-          }
-        }
-        .more {
-          --n-height: 36px;
-          --n-font-size: 13px;
-          --n-icon-size: 18px;
-        }
-      }
-      .right {
-        .search {
-          height: 36px;
-          width: 130px;
-          font-size: 13px;
-        }
-      }
-    }
-  }
-}
-.title {
-  display: flex;
-  flex-direction: column;
-  .key {
-    margin: 10px 0;
-    font-size: 36px;
-    font-weight: bold;
-    margin-right: 8px;
-  }
-  .back {
-    width: 98px;
-  }
-}
-</style>

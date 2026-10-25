@@ -1,248 +1,172 @@
-<!-- 歌曲评论 -->
+<!-- 评论页 -->
 <template>
-  <div class="comment">
+  <div class="comment-page">
     <!-- 歌曲信息 -->
-    <Transition name="fade" mode="out-in">
-      <n-card
-        :key="songId"
-        :content-style="{
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          padding: '16px',
-          height: '100%',
-        }"
-        class="song-detail"
-      >
-        <n-image
-          :src="songDetail?.coverSize?.s || songDetail?.cover"
-          class="cover-img"
-          preview-disabled
-          @load="
-            (e) => {
-              e.target.style.opacity = 1;
-            }
-          "
-        >
-          <template #placeholder>
-            <div class="cover-loading">
-              <img class="loading-img" src="/images/pic/song.jpg?assest" alt="loading-img" />
-            </div>
-          </template>
-        </n-image>
-        <div class="content">
-          <div class="name">{{ songDetail?.name || "未知曲目" }}</div>
-          <div class="artist">
-            <n-icon depth="3" size="20">
-              <SvgIcon icon="account-music" />
-            </n-icon>
-            <div v-if="songDetail?.artists && Array.isArray(songDetail?.artists)" class="all-ar">
-              <span v-for="ar in songDetail.artists" :key="ar.id" class="ar">
-                {{ ar.name }}
-              </span>
-            </div>
-            <div v-else class="all-ar">
-              <span class="ar"> {{ songDetail?.artists || "未知艺术家" }} </span>
-            </div>
+    <n-flex :wrap="false" align="center" class="song-data">
+      <n-image :src="coverUrl" class="cover-img" preview-disabled @load="coverLoaded">
+        <template #placeholder>
+          <div class="cover-loading">
+            <img src="/images/song.jpg?asset" class="loading-img" alt="loading" />
           </div>
-        </div>
-      </n-card>
-    </Transition>
-    <!-- 所有评论 -->
-    <Transition name="fade" mode="out-in">
-      <div v-if="commentData !== 'empty'" class="all-comments">
-        <!-- 评论跳转 -->
-        <div id="to-comments" />
-        <!-- 热门评论 -->
-        <template v-if="commentPage === 1 && hotCommentData !== 'no-comment'">
-          <n-h6 class="title" prefix="bar">热门评论 </n-h6>
-          <CommentList :data="hotCommentData" :loadingNum="10" />
         </template>
-        <!-- 全部评论 -->
-        <n-h6 class="title" prefix="bar">
-          <n-text>全部评论</n-text>
-          <n-text v-if="commentData?.totalCount" class="num" depth="3">
-            {{ commentData.totalCount }} +
-          </n-text>
-        </n-h6>
-        <CommentList :data="commentData?.comments" />
-        <!-- 分页 -->
-        <Pagination
-          :totalCount="commentData?.totalCount"
-          :pageNumber="commentPage"
-          @pageNumberChange="pageNumberChange"
-        />
+      </n-image>
+      <n-flex :size="2" class="song-info" vertical>
+        <span class="title text-hidden">{{ songName }}</span>
+        <span class="artist text-hidden">{{ songArtists }}</span>
+      </n-flex>
+      <div class="actions">
+        <n-flex class="close" align="center" justify="center" @click="openExcludeComment">
+          <SvgIcon name="Tag" :size="20" />
+        </n-flex>
+        <n-flex class="close" align="center" justify="center" @click="handlePlay">
+          <SvgIcon name="Music" :size="24" />
+        </n-flex>
       </div>
-      <n-empty
-        v-else
-        :description="`很抱歉，该歌曲暂无评论`"
-        style="margin-top: 60px"
-        size="large"
-      />
-    </Transition>
+    </n-flex>
+    <!-- 评论列表 -->
+    <ListComment :id="commentId" :type="commentType" height="auto" />
   </div>
 </template>
 
-<script setup>
-import { useRouter } from "vue-router";
-import { getSongDetail } from "@/api/song";
-import { getComment, getHotComment } from "@/api/comment";
-import formatData from "@/utils/formatData";
+<script setup lang="ts">
+import type { SongType } from "@/types/main";
+import { useMusicStore, useSettingStore } from "@/stores";
+import { usePlayerController } from "@/core/player/PlayerController";
+import { songDetail } from "@/api/song";
+import { radioProgramDetail } from "@/api/radio";
+import { formatSongsList, removeBrackets } from "@/utils/format";
+import { coverLoaded } from "@/utils/helper";
+import { openExcludeComment } from "@/utils/modal";
+import ListComment from "@/components/List/ListComment.vue";
 
 const router = useRouter();
+const musicStore = useMusicStore();
+const settingStore = useSettingStore();
+const player = usePlayerController();
 
-// 歌曲 id
-const songId = ref(router.currentRoute.value.query.id);
-
-// 歌曲信息
-const songDetail = ref(null);
-
-// 评论数据
-const commentPage = ref(1);
-const commentData = ref(null);
-const hotCommentData = ref(null);
-
-// 获取歌曲详情
-const getSongDetailData = async (id) => {
-  try {
-    const detail = await getSongDetail(id);
-    const data = formatData(detail?.songs?.[0], "song");
-    songDetail.value = data?.[0] ?? null;
-  } catch (error) {
-    console.error("获取歌曲详情失败：", error);
-  }
-};
-
-// 获取评论数据
-const getCommentData = async (id, pageNo = 1, sortType = 3, pageSize = 20) => {
-  try {
-    // 计算 cursor
-    const cursor =
-      pageNo !== 1 && commentData.value?.cursor !== "0" ? commentData.value.cursor : null;
-    // 获取热门评论和普通评论
-    const [hotComments, comments] = await Promise.all([
-      pageNo === 1 ? getHotComment(id, 0, 10) : null,
-      getComment(id, 0, pageNo, sortType, pageSize, cursor),
-    ]);
-    // 更新数据
-    if (comments?.data.totalCount === 0) return (commentData.value = "empty");
-    commentData.value = comments?.data;
-    hotCommentData.value = hotComments?.hotComments?.[0] ? hotComments.hotComments : "no-comment";
-  } catch (error) {
-    console.error("获取评论数据出错：", error);
-    $message.error("获取评论数据出错");
-  }
-};
-
-// 评论分页变化
-const pageNumberChange = async (page) => {
-  commentPage.value = page;
-  await getCommentData(router.currentRoute.value.query.id, page);
-  scrollToComment();
-};
-
-// 滚动至评论
-const scrollToComment = () => {
-  const commentDom = document.getElementById("to-comments");
-  if (commentDom) {
-    commentDom.scrollIntoView({ behavior: "smooth" });
-  }
-};
-
-// 检查是否具有视频 id
-const isHasCommentId = (id) => {
-  if (!id) {
-    $message.error("参数不完整");
-    return router.go(-1);
-  }
-};
-
-// 监听路由变化
-watch(
-  () => router.currentRoute.value,
-  (val) => {
-    if (val.name == "comment") {
-      commentPage.value = 1;
-      commentData.value = null;
-      hotCommentData.value = null;
-      getSongDetailData(val.query.id);
-      getCommentData(val.query.id);
-    }
-  },
+// 路由参数
+const commentId = computed(() => Number(router.currentRoute.value.query.id));
+const commentType = computed(
+  () => (Number(router.currentRoute.value.query.type) || 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7,
 );
 
-onMounted(() => {
-  // 若无 id
-  isHasCommentId(songId.value);
-  // 获取歌曲详情
-  getSongDetailData(songId.value);
-  // 获取评论
-  getCommentData(songId.value);
+// 歌曲信息（进入页面时快照，不跟随播放变化）
+const songSnapshot = ref<SongType | null>(null);
+
+const songName = computed(() => {
+  const name = songSnapshot.value?.name ?? "";
+  return settingStore.hideBracketedContent ? removeBrackets(name) : name;
 });
+
+const songArtists = computed(() => {
+  const song = songSnapshot.value;
+  if (!song) return "";
+  // 电台节目显示主播名
+  if (song.type === "radio" && song.dj?.creator) return song.dj.creator;
+  const artists = song.artists;
+  if (!artists) return "";
+  return Array.isArray(artists) ? artists.map((a) => a.name).join(" / ") : String(artists);
+});
+
+const coverUrl = computed(() => {
+  const song = songSnapshot.value;
+  if (!song) return "";
+  // 优先使用 coverSize.s，与 musicStore.songCover 逻辑一致
+  const cover = song.coverSize?.s || song.cover || "";
+  return cover ? cover.replace(/\?param=\d+y\d+$/, "") + "?param=200y200" : "";
+});
+
+// 播放歌曲
+const handlePlay = () => {
+  if (songSnapshot.value) player.addNextSong(songSnapshot.value, true);
+};
+
+// 初始化歌曲信息：优先从 musicStore 快照，否则请求接口
+const initSongData = async (id: number, type: number) => {
+  if (!id) return;
+  // 当前正在播放的就是这首歌，直接快照
+  if (musicStore.playSong.id === id) {
+    songSnapshot.value = {
+      ...musicStore.playSong,
+      // 确保封面数据完整
+      coverSize: musicStore.playSong.coverSize ? { ...musicStore.playSong.coverSize } : undefined,
+    } as SongType;
+    return;
+  }
+  // 否则请求接口
+  try {
+    if (type === 4) {
+      // 电台节目使用节目详情接口
+      const result = await radioProgramDetail(id);
+      if (!result.program) return;
+      const programs = formatSongsList([result.program]);
+      songSnapshot.value = programs[0];
+    } else {
+      // 普通歌曲
+      const result = await songDetail(id);
+      if (!result.songs?.length) return;
+      const songs = formatSongsList(result.songs);
+      songSnapshot.value = songs[0];
+    }
+  } catch (error) {
+    console.error("获取歌曲信息失败:", error);
+  }
+};
+
+watch(
+  [commentId, commentType],
+  ([id, type]) => {
+    if (id) {
+      songSnapshot.value = null;
+      initSongData(id, type);
+    }
+  },
+  { immediate: true },
+);
 </script>
 
 <style lang="scss" scoped>
-.comment {
-  .song-detail {
-    height: 100px;
-    border-radius: 8px;
+.comment-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  .song-data {
+    height: 90px;
+    margin-bottom: 20px;
+    padding: 0 16px;
+    border-radius: 12px;
+    background-color: rgba(var(--primary), 0.08);
     .cover-img {
-      width: 66px;
-      height: 66px;
-      margin-right: 16px;
-      border-radius: 8px;
+      width: 60px;
+      height: 60px;
+      border-radius: 12px;
+      margin-right: 4px;
+    }
+    .song-info {
       overflow: hidden;
-      z-index: 1;
-      box-shadow: 0 0 10px 6px #00000008;
-      transition: opacity 0.1s ease-in-out;
-      :deep(img) {
-        width: 100%;
-        height: 100%;
-        opacity: 0;
-        transition: opacity 0.3s ease-in-out;
-      }
     }
-    .content {
-      .name {
-        font-size: 18px;
-        font-weight: bold;
-        margin-bottom: 4px;
-      }
-      .artist {
-        display: flex;
-        align-items: center;
-        .n-icon {
-          margin-right: 4px;
-        }
-        .all-ar {
-          display: -webkit-box;
-          -webkit-box-orient: vertical;
-          -webkit-line-clamp: 1;
-          overflow: hidden;
-          word-break: break-all;
-          .ar {
-            display: inline-flex;
-            &::after {
-              content: "/";
-              margin: 0 4px;
-            }
-            &:last-child {
-              &::after {
-                display: none;
-              }
-            }
-          }
+    .title {
+      font-size: 20px;
+      font-weight: bold;
+    }
+    .artist {
+      opacity: 0.8;
+    }
+    .actions {
+      margin-left: auto;
+      display: flex;
+      gap: 12px;
+      .close {
+        width: 40px;
+        height: 40px;
+        background-color: rgba(var(--primary), 0.08);
+        border-radius: 8px;
+        transition: background-color 0.3s;
+        cursor: pointer;
+        &:hover {
+          background-color: rgba(var(--primary), 0.2);
         }
       }
-    }
-  }
-  .title {
-    margin-left: 6px;
-    display: flex;
-    align-items: center;
-    .num {
-      font-size: 12px;
-      margin-left: 6px;
     }
   }
 }

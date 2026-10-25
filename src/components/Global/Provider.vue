@@ -3,19 +3,21 @@
   <n-config-provider
     :locale="zhCN"
     :date-locale="dateZhCN"
-    :breakpoints="breakpoints"
     :theme="theme"
     :theme-overrides="themeOverrides"
     abstract
     inline-theme-disabled
+    preflight-style-disabled
   >
     <n-global-style />
     <n-loading-bar-provider>
       <n-dialog-provider>
         <n-notification-provider>
           <n-message-provider :max="1" placement="bottom">
-            <slot />
-            <NaiveProviderContent />
+            <n-modal-provider>
+              <slot />
+              <NaiveProviderContent />
+            </n-modal-provider>
           </n-message-provider>
         </n-notification-provider>
       </n-dialog-provider>
@@ -23,111 +25,235 @@
   </n-config-provider>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import {
   zhCN,
   dateZhCN,
   darkTheme,
   useOsTheme,
   useLoadingBar,
+  useModal,
   useDialog,
   useMessage,
   useNotification,
+  GlobalThemeOverrides,
 } from "naive-ui";
-import { storeToRefs } from "pinia";
-import { siteSettings, siteStatus } from "@/stores";
-import themeColorData from "@/assets/themeColor.json";
+import { useSettingStore, useStatusStore } from "@/stores";
+import { setColorSchemes, MONOTONOUS_THEME } from "@/utils/color";
+import { useCustomCode } from "@/composables/useCustomCode";
+// import { rgbToHex } from "@imsyy/color-utils";
+import themeColor from "@/assets/data/themeColor.json";
 
-const status = siteStatus();
-const settings = siteSettings();
-const osThemeRef = useOsTheme();
-const { coverTheme } = storeToRefs(status);
-const { themeType, themeAuto, themeTypeName, themeTypeData, themeAutoCover } =
-  storeToRefs(settings);
+const statusStore = useStatusStore();
+const settingStore = useSettingStore();
 
-// 默认配置数据
-const themeOverrides = ref(null);
-const theme = ref(themeType.value === "dark" ? darkTheme : null);
-const breakpoints = { xs: 320, s: 540, sm: 780, m: 1024, l: 1280, xl: 1536 };
+// 操作系统主题
+const osTheme = useOsTheme();
 
-// 明暗切换
-const changeTheme = () => {
-  const themeColorMeta = document.querySelector('meta[name="theme-color"]');
-  if (themeType.value === "light") {
-    theme.value = null;
-    themeColorMeta.setAttribute("content", "#ffffff");
-  } else if (themeType.value === "dark") {
-    theme.value = darkTheme;
-    themeColorMeta.setAttribute("content", "#18181c");
+// 全局主题
+const themeOverrides = shallowRef<GlobalThemeOverrides>({});
+// 轻量的 rgba 构造器
+const toRGBA = (rgb: string, alpha: number) => `rgba(${rgb}, ${alpha})`;
+// 主题缓存键
+let lastThemeCacheKey: string | null = null;
+
+// 获取明暗模式
+const theme = computed(() => {
+  // 图片模式强制深色
+  if (statusStore.isCustomBackground) return darkTheme;
+  return settingStore.themeMode === "auto"
+    ? // 跟随系统
+      osTheme.value === "dark"
+      ? darkTheme
+      : null
+    : // 自定义
+      settingStore.themeMode === "dark"
+      ? darkTheme
+      : null;
+});
+
+// 获取当前主题色数据
+const getThemeMainColor = () => {
+  const themeType = theme.value ? "dark" : "light";
+  // 背景图模式
+  if (statusStore.isCustomBackground) {
+    const { themeColor, useCustomColor, customColor, isSolid } = statusStore.backgroundConfig;
+    // 纯色覆盖
+    if (isSolid) return setColorSchemes(MONOTONOUS_THEME, themeType);
+    const color = useCustomColor ? customColor : themeColor;
+    // 强制使用 dark 模式生成
+    if (color) return setColorSchemes(color, "dark");
+  }
+  // 封面模式
+  if (settingStore.themeFollowCover && statusStore.songCoverTheme) {
+    const coverColor = statusStore.songCoverTheme;
+    if (!coverColor) return {};
+    return setColorSchemes(coverColor, themeType);
+  } else if (settingStore.themeColorType === "solid") {
+    // 纯色预设
+    return setColorSchemes(MONOTONOUS_THEME, themeType);
+  } else if (settingStore.themeColorType !== "custom") {
+    // 预设模式
+    return setColorSchemes(themeColor[settingStore.themeColorType].color, themeType);
+  } else {
+    // 自定义模式
+    return setColorSchemes(settingStore.themeCustomColor, themeType);
   }
 };
 
-// 配置主题色
-const changeThemeColor = (val, isCover = false) => {
+// 更改全局主题
+const changeGlobalTheme = () => {
+  applyThemeBackgroundMode();
   try {
-    // 获取主色数据
-    const mainColorData =
-      isCover && Object.keys(val)?.length
-        ? val[themeType.value]
-        : val !== "custom"
-          ? themeColorData[val]
-          : themeTypeData.value;
-    // 微调主题色
-    const primaryColor = isCover ? `rgb(${mainColorData.bg})` : mainColorData.primaryColor;
-    const primaryColorHover = isCover ? `rgba(${mainColorData.bg}, 0.29)` : primaryColor + "29";
-    const primaryColorPressed = isCover ? `rgba(${mainColorData.bg}, 0.26)` : primaryColor + "26";
-    const primaryColorSuppl = isCover ? `rgba(${mainColorData.bg}, 0.05)` : primaryColor + "05";
-    // 自适应主题背景色
-    const coverAutobgCover = isCover
-      ? themeType.value === "dark"
-        ? val.light.bg
-        : "250, 250, 252"
-      : null;
-    // 更新主题覆盖
-    themeOverrides.value = {
-      common:
-        isCover && Object.keys(val)?.length
-          ? themeType.value === "dark"
-            ? {
-                primaryColor,
-                primaryColorHover,
-                primaryColorPressed,
-                primaryColorSuppl,
-                textColor1: `rgba(${mainColorData.bg}, 0.9)`,
-                textColor2: `rgba(${mainColorData.bg}, 0.82)`,
-                textColor3: `rgba(${mainColorData.bg}, 0.52)`,
-                bodyColor: `rgb(${val.dark.mainBg})`,
-                cardColor: `rgb(${coverAutobgCover})`,
-                tagColor: `rgb(${coverAutobgCover})`,
-                modalColor: `rgb(${coverAutobgCover})`,
-                popoverColor: `rgb(${coverAutobgCover})`,
-              }
-            : {
-                primaryColor,
-                primaryColorHover,
-                primaryColorPressed,
-                primaryColorSuppl,
-              }
-          : mainColorData,
-      Icon: { color: isCover ? primaryColor : null },
+    // 获取配色方案
+    const colorSchemes = getThemeMainColor();
+    if (!colorSchemes || Object.keys(colorSchemes).length === 0) {
+      themeOverrides.value = {};
+      return;
+    }
+    // 构造主题缓存 Key
+    const themeModeLabel = theme.value ? "dark" : "light";
+    const themeCacheKey = `${themeModeLabel}|${settingStore.themeGlobalColor ? 1 : 0}|${settingStore.globalFont}|${colorSchemes.primary}|${colorSchemes.background}|${colorSchemes["surface-container"]}`;
+    if (lastThemeCacheKey === themeCacheKey) return;
+    lastThemeCacheKey = themeCacheKey;
+
+    // 关键颜色
+    const primaryRGB = colorSchemes.primary as string;
+    const surfaceContainerRGB = colorSchemes["surface-container"] as string;
+
+    // 全局字体
+    const fontFamily = `${settingStore.globalFont === "default" ? "v-sans" : settingStore.globalFont}, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"`;
+
+    // 预计算颜色值
+    const colors = {
+      primary: `rgb(${primaryRGB})`,
+      primary78: toRGBA(primaryRGB, 0.78),
+      primary58: toRGBA(primaryRGB, 0.58),
+      primary52: toRGBA(primaryRGB, 0.52),
+      primary20: toRGBA(primaryRGB, 0.2),
+      primary12: toRGBA(primaryRGB, 0.12),
+      primary09: toRGBA(primaryRGB, 0.09),
+      primary08: toRGBA(primaryRGB, 0.08),
+      surface: `rgb(${surfaceContainerRGB})`,
     };
-    if (!isCover) themeTypeData.value = mainColorData;
-    // 更新全局颜色变量
-    setCssVariable("--main-color", primaryColor);
-    setCssVariable("--main-second-color", primaryColorHover);
-    setCssVariable("--main-boxshadow-color", primaryColorPressed);
-    setCssVariable("--main-boxshadow-hover-color", primaryColorSuppl);
+
+    // 通用样式基座
+    const commonBase = {
+      fontFamily,
+      primaryColor: colors.primary,
+      primaryColorHover: colors.primary78,
+      primaryColorPressed: toRGBA(primaryRGB, 0.26),
+      primaryColorSuppl: colors.primary12,
+    } as GlobalThemeOverrides["common"];
+
+    /**
+     * 获取组件样式
+     * @param isGlobal 是否全局着色
+     */
+    const getComponentStyles = (isGlobal: boolean) => ({
+      Slider: {
+        handleColor: colors.primary,
+        fillColor: colors.primary,
+        fillColorHover: colors.primary,
+        railColor: colors.primary20,
+        railColorHover: toRGBA(primaryRGB, 0.3),
+        indicatorColor: colors.surface,
+        indicatorTextColor: colors.primary,
+      },
+      Icon: {
+        color: colors.primary,
+      },
+      Tooltip: {
+        color: colors.surface,
+        textColor: colors.primary,
+      },
+      Tabs: {
+        colorSegment: colors.surface,
+        tabColorSegment: colors.primary12,
+      },
+      ...(isGlobal
+        ? {
+            Card: { borderColor: colors.primary09 },
+            Button: {
+              textColorHover: colors.primary78,
+              textColorFocus: colors.primary58,
+              colorPrimary: toRGBA(primaryRGB, 0.9),
+              colorHoverPrimary: colors.primary,
+              colorPressedPrimary: toRGBA(primaryRGB, 0.8),
+              colorFocusPrimary: colors.primary,
+            },
+            Switch: { railColorActive: toRGBA(primaryRGB, 0.8) },
+            Input: {
+              color: toRGBA(primaryRGB, 0.1),
+              colorFocus: colors.surface,
+              placeholderColor: colors.primary58,
+              border: `1px solid ${toRGBA(primaryRGB, 0.1)}`,
+              clearColor: toRGBA(primaryRGB, 0.38),
+              clearColorHover: toRGBA(primaryRGB, 0.48),
+              clearColorPressed: toRGBA(primaryRGB, 0.3),
+            },
+            Empty: { textColor: toRGBA(primaryRGB, 0.38) },
+            Divider: { color: colors.primary09 },
+            Dropdown: { dividerColor: colors.primary09 },
+            Layout: { siderBorderColor: colors.primary09 },
+            Tabs: {
+              colorSegment: colors.primary08,
+              tabColorSegment: colors.primary12,
+            },
+            Drawer: {
+              headerBorderBottom: `1px solid ${colors.primary09}`,
+              footerBorderTop: `1px solid ${colors.primary09}`,
+            },
+            Menu: { dividerColor: colors.primary09 },
+            Progress: { railColor: toRGBA(primaryRGB, 0.16) },
+            Popover: {
+              color: colors.surface,
+            },
+          }
+        : {}),
+    });
+
+    // 获取组件样式
+    const specificStyles = getComponentStyles(settingStore.themeGlobalColor);
+
+    if (settingStore.themeGlobalColor) {
+      themeOverrides.value = {
+        common: {
+          ...commonBase,
+          textColorBase: primaryRGB,
+          textColor1: colors.primary,
+          textColor2: toRGBA(primaryRGB, 0.82),
+          textColor3: colors.primary52,
+          bodyColor: `rgb(${colorSchemes.background})`,
+          cardColor: colors.surface,
+          tagColor: colors.surface,
+          modalColor: colors.surface,
+          popoverColor: colors.surface,
+          buttonColor2: colors.primary08,
+          buttonColor2Hover: colors.primary12,
+          buttonColor2Pressed: colors.primary08,
+          iconColor: colors.primary,
+          iconColorHover: toRGBA(primaryRGB, 0.475),
+          closeIconColor: colors.primary58,
+          hoverColor: colors.primary09,
+          borderColor: colors.primary09,
+          textColorDisabled: toRGBA(primaryRGB, 0.3),
+          placeholderColorDisabled: toRGBA(primaryRGB, 0.3),
+          iconColorDisabled: toRGBA(primaryRGB, 0.3),
+        },
+        ...specificStyles,
+      };
+    } else {
+      themeOverrides.value = {
+        common: commonBase,
+        ...specificStyles,
+      };
+    }
   } catch (error) {
     themeOverrides.value = {};
     console.error("切换主题色出现错误：", error);
-    $message.error("切换主题色出现错误，已使用默认配置");
+    window.$message.error("切换主题色出现错误，已使用默认配置");
   }
-};
-
-// 修改全局颜色
-const setCssVariable = (name, value) => {
-  // document.documentElement.style.setProperty(name, value);
-  document.body.style.setProperty(name, value);
 };
 
 // 挂载 naive 组件
@@ -140,8 +266,11 @@ const setupNaiveTools = () => {
   window.$message = useMessage();
   // 对话框
   window.$dialog = useDialog();
+  // 模态框
+  window.$modal = useModal();
 };
 
+// 挂载工具
 const NaiveProviderContent = defineComponent({
   setup() {
     setupNaiveTools();
@@ -151,51 +280,45 @@ const NaiveProviderContent = defineComponent({
   },
 });
 
-// 监听明暗变化
+// 应用背景模式类名
+const applyThemeBackgroundMode = () => {
+  if (statusStore.isCustomBackground) {
+    document.documentElement.classList.add("image");
+  } else {
+    document.documentElement.classList.remove("image");
+  }
+};
+
+// 监听设置更改
 watch(
-  () => themeType.value,
+  () => [
+    settingStore.themeColorType,
+    settingStore.themeFollowCover,
+    settingStore.themeGlobalColor,
+    settingStore.globalFont,
+    statusStore.songCoverTheme?.main,
+    statusStore.themeBackgroundMode,
+    statusStore.backgroundConfig.themeColor,
+    statusStore.backgroundConfig.useCustomColor,
+    statusStore.backgroundConfig.customColor,
+    statusStore.backgroundConfig.isSolid,
+    theme.value,
+  ],
+  () => changeGlobalTheme(),
+);
+
+// 自定义颜色更改
+watchDebounced(
+  () => settingStore.themeCustomColor,
   () => {
-    changeTheme();
-    changeThemeColor(
-      themeAutoCover.value && Object.keys(coverTheme.value)?.length
-        ? coverTheme.value
-        : themeTypeName.value,
-      themeAutoCover.value && Object.keys(coverTheme.value)?.length,
-    );
+    changeGlobalTheme();
   },
+  { debounce: 500, maxWait: 1000 },
 );
-watch(
-  () => osThemeRef.value,
-  (val) => {
-    if (themeAuto.value) themeType.value = val === "dark" ? "dark" : "light";
-  },
-);
-
-// 监听主题色变化
-watch(
-  () => themeTypeName.value,
-  (val) => changeThemeColor(val),
-);
-watch(
-  () => themeTypeData.value,
-  (val) => changeThemeColor(val.label),
-);
-watch(
-  () => coverTheme.value,
-  (val) => {
-    if (themeAutoCover.value) changeThemeColor(val, themeAutoCover.value);
-  },
-);
-
-onBeforeMount(() => {
-  // 主题类型
-  changeTheme();
-  // 主题色
-  changeThemeColor(themeTypeName.value);
-});
 
 onMounted(() => {
-  // 挂载方法
-  window.$changeThemeColor = changeThemeColor;
+  changeGlobalTheme();
+  // 自定义代码注入
+  useCustomCode();
 });
 </script>

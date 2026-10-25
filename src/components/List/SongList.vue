@@ -1,797 +1,815 @@
-<!-- 歌曲列表 -->
+<!-- 歌曲列表 - 虚拟列表 -->
 <template>
-  <Transition name="fade" mode="out-in" @after-enter="checkHasPlaying">
-    <div v-if="data?.[0]?.id" class="song-list">
-      <div v-if="showTitle" class="song-list-header">
-        <n-text class="num" depth="3"> # </n-text>
-        <n-text :class="['info', { 'has-cover': data[0].cover && showCover }]" depth="3">
-          {{ type === "song" ? "歌曲" : "声音" }}
-        </n-text>
-        <n-text v-if="data[0].album && showAlbum" class="album hidden" depth="3"> 专辑 </n-text>
-        <n-text v-if="data[0].updateTime && type === 'dj'" class="update hidden" depth="3">
-          更新日期
-        </n-text>
-        <n-text v-if="type !== 'dj'" class="control" />
-        <n-text v-if="data[0].playCount && type === 'dj'" class="count hidden" depth="3">
-          播放量
-        </n-text>
-        <n-text v-if="data[0].duration" class="duration hidden" depth="3"> 时长 </n-text>
-        <n-text v-if="data[0].size" class="size hidden" depth="3"> 大小 </n-text>
-      </div>
-      <n-card
-        v-for="(item, index) in data.slice(
-          (pageNumber - 1) * loadSize,
-          (pageNumber - 1) * loadSize + loadSize,
-        )"
-        :id="'song-list-' + index"
-        :key="index"
-        :content-style="{
-          padding: '16px',
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }"
-        :class="Number(music.getPlaySongData?.id) === Number(item?.id) ? 'songs play' : 'songs'"
-        hoverable
-        @click="checkCanClick(data, item, songsIndex + index)"
-        @dblclick.stop="playSong(data, item, songsIndex + index)"
-        @contextmenu="
-          songListDropdownRef?.openDropdown($event, data, item, songsIndex + index, sourceId, type)
-        "
-      >
-        <!-- 序号 -->
-        <n-text v-if="music.getPlaySongData?.id !== item?.id" class="num" depth="3">
-          {{ songsIndex + index + 1 }}
-        </n-text>
-        <n-icon v-else class="num" size="22">
-          <SvgIcon icon="music-note" />
-        </n-icon>
-        <!-- 封面 -->
-        <div v-if="item.cover && showCover" class="cover">
-          <n-image
-            :src="item.coverSize.s"
-            class="cover-img"
-            preview-disabled
-            lazy
-            @load="
-              (e) => {
-                e.target.style.opacity = 1;
-              }
-            "
+  <Transition name="fade">
+    <div v-if="!isEmpty(listData)" ref="songListRef" class="song-list">
+      <Transition name="fade">
+        <div
+          :key="listKey"
+          :style="{
+            height: height === 'auto' ? 'auto' : `${height || songListHeight}px`,
+            transition: disableHeightTransition ? 'transform 0.3s, opacity 0.3s' : undefined,
+          }"
+          class="virtual-list-wrapper"
+        >
+          <!-- 悬浮顶栏 -->
+          <div class="list-header song-card sticky-header">
+            <n-text class="num">#</n-text>
+            <n-popover
+              v-if="!disabledSort"
+              trigger="click"
+              placement="bottom-start"
+              :show-arrow="false"
+              style="padding: 0"
+            >
+              <template #trigger>
+                <div class="title has-sort">
+                  <n-text>标题</n-text>
+                  <n-text v-if="statusStore.listSortField !== 'default'" class="sort" depth="3">
+                    {{ sortFieldOptions[statusStore.listSortField].name }}
+                  </n-text>
+                </div>
+              </template>
+              <div class="sort-menu">
+                <div class="group">
+                  <div class="label">排序字段</div>
+                  <n-radio-group
+                    v-model:value="statusStore.listSortField"
+                    name="sortField"
+                    @update:value="(val) => handleSortFieldChange(val)"
+                  >
+                    <n-flex :vertical="true" size="small">
+                      <n-radio v-for="(option, key) in sortFieldOptions" :key="key" :value="key">
+                        {{ option.name }}
+                      </n-radio>
+                    </n-flex>
+                  </n-radio-group>
+                </div>
+                <n-divider vertical style="height: auto; margin: 0 12px" />
+                <div class="group">
+                  <div class="label">排序方式</div>
+                  <n-radio-group
+                    v-model:value="statusStore.listSortOrder"
+                    name="sortOrder"
+                    @update:value="(val) => handleSortOrderChange(val)"
+                  >
+                    <n-flex :vertical="true" size="small">
+                      <n-radio v-for="(option, key) in sortOrderOptions" :key="key" :value="key">
+                        {{ option.name }}
+                      </n-radio>
+                    </n-flex>
+                  </n-radio-group>
+                </div>
+              </div>
+            </n-popover>
+            <n-text v-else class="title">标题</n-text>
+            <n-text
+              v-if="
+                type !== 'radio' && !hiddenAlbum && !isSmallScreen && settingStore.showSongAlbum
+              "
+              class="album"
+            >
+              专辑
+            </n-text>
+            <n-text v-if="type !== 'radio' && settingStore.showSongOperations" class="actions">
+              操作
+            </n-text>
+            <n-text v-if="type === 'radio' && !isSmallScreen" class="meta date">更新日期</n-text>
+            <n-text v-if="type === 'radio' && !isSmallScreen" class="meta">播放量</n-text>
+            <n-text v-if="!isSmallScreen && settingStore.showSongDuration" class="meta">
+              时长
+            </n-text>
+            <n-text v-if="data?.[0].size && !hiddenSize && !isSmallScreen" class="meta size">
+              大小
+            </n-text>
+          </div>
+          <!-- 虚拟列表 -->
+          <VirtualScroll
+            ref="listRef"
+            :item-height="90"
+            :item-fixed="true"
+            :items="virtualListItems"
+            :height="`calc(100% - 40px)`"
+            :padding-bottom="80"
+            :class="{ 'is-dragging-global': isDragging && draggable }"
+            @scroll="onScroll"
           >
-            <template #placeholder>
-              <div class="cover-loading">
-                <img class="loading-img" src="/images/pic/song.jpg?assest" alt="song" />
+            <template #default="{ item, index }">
+              <div v-if="item.type === 'song'" class="song-node">
+                <!-- 拖拽放置指示线 -->
+                <div
+                  v-if="
+                    isDragging &&
+                    draggable &&
+                    dropIndicator.index === index &&
+                    dropIndicator.position === 'top'
+                  "
+                  class="drop-line line-top"
+                />
+                <div
+                  v-if="
+                    isDragging &&
+                    draggable &&
+                    dropIndicator.index === index &&
+                    dropIndicator.position === 'bottom'
+                  "
+                  class="drop-line line-bottom"
+                />
+                <SongCard
+                  :class="{ 'is-dragging': isDragging && draggable && draggedIndex === index }"
+                  :song="item.data"
+                  :index="index"
+                  :hiddenCover="hiddenCover || settingStore.hiddenCovers.list"
+                  :hiddenAlbum="hiddenAlbum"
+                  :hiddenSize="hiddenSize"
+                  @mousedown="
+                    draggable
+                      ? handlePointerDown($event, index, item.data.name || '未知曲目')
+                      : undefined
+                  "
+                  @touchstart="
+                    draggable
+                      ? handlePointerDown($event, index, item.data.name || '未知曲目')
+                      : undefined
+                  "
+                  @click.stop="handleSongClick(item.data)"
+                  @dblclick.stop="handleSongPlay(item.data)"
+                  @contextmenu.stop="handleShowMenu($event, item.data, index)"
+                  @show-menu="handleShowMenu($event, item.data, index)"
+                />
+              </div>
+              <!-- 加载更多 -->
+              <div v-else-if="item.type === 'footer'" class="load-more">
+                <n-flex v-if="loadMore && loading">
+                  <n-spin size="small" />
+                  <n-text>{{ loadingText || "努力加载中" }}</n-text>
+                </n-flex>
+                <n-divider v-else dashed> 没有更多啦 ~ </n-divider>
               </div>
             </template>
-          </n-image>
+          </VirtualScroll>
         </div>
-        <!-- 信息 -->
-        <div class="info">
-          <div class="title">
-            <!-- 名称 -->
-            <!-- @click.stop="type !== 'dj' && !item.path ? router.push(`/song?id=${item.id}`) : null" -->
-            <n-text class="name" depth="2">
-              {{ item?.name || "未知曲目" }}
-            </n-text>
-            <!-- 特权 -->
-            <n-tag
-              v-if="showPrivilege && item.fee === 1 && userData.detail?.profile?.vipType !== 11"
-              :bordered="false"
-              type="error"
-              size="small"
-              round
-            >
-              VIP
-            </n-tag>
-            <n-tag
-              v-if="showPrivilege && item.fee === 4"
-              :bordered="false"
-              type="error"
-              size="small"
-              round
-            >
-              EP
-            </n-tag>
-            <!-- 云盘 -->
-            <n-tag
-              v-if="showPrivilege && item.pc"
-              :bordered="false"
-              class="cloud"
-              type="info"
-              size="small"
-              round
-            >
-              <template #icon>
-                <n-icon>
-                  <SvgIcon icon="cloud" />
-                </n-icon>
-              </template>
-            </n-tag>
-            <!-- MV -->
-            <n-tag
-              v-if="item?.mv"
-              :bordered="false"
-              class="mv"
-              type="warning"
-              size="small"
-              round
-              @click.stop="router.push(`/videos-player?id=${item.mv}`)"
-            >
-              MV
-            </n-tag>
-          </div>
-          <!-- 歌手 -->
-          <div v-if="Array.isArray(item.artists)" class="artist">
-            <n-text
-              v-for="ar in item.artists"
-              :key="ar.id"
-              class="ar"
-              @click.stop="router.push(`/artist?id=${ar.id}`)"
-              @dblclick.stop
-            >
-              {{ ar.name }}
-            </n-text>
-          </div>
-          <div v-else-if="type === 'dj'" class="artist">
-            <n-text class="ar" @dblclick.stop> 电台节目 </n-text>
-          </div>
-          <div v-else class="artist">
-            <n-text class="ar" @dblclick.stop> {{ item.artists || "未知艺术家" }} </n-text>
-          </div>
-          <!-- 别名 -->
-          <n-text v-if="item.alia" class="alia" depth="3">{{ item.alia }}</n-text>
-        </div>
-        <!-- 专辑 -->
-        <template v-if="showAlbum && type !== 'dj'">
-          <n-text
-            v-if="item.album"
-            class="album hidden"
-            @click.stop="
-              typeof item.album === 'object' ? router.push(`/album?id=${item.album.id}`) : null
-            "
-            @dblclick.stop
-          >
-            {{ typeof item.album === "object" ? item.album?.name || "未知专辑" : item.album }}
-          </n-text>
-          <n-text v-else class="album hidden">未知专辑</n-text>
-        </template>
-        <!-- 操作 -->
-        <div v-if="type !== 'dj'" class="action">
-          <!-- 喜欢歌曲 -->
-          <n-icon
-            :depth="dataStore.getSongIsLike(item?.id) ? 0 : 3"
-            class="favorite"
-            size="20"
-            @click.stop="
-              dataStore.changeLikeList(item?.id, !dataStore.getSongIsLike(item?.id), item?.path)
-            "
-            @dblclick.stop
-          >
-            <SvgIcon
-              :icon="
-                dataStore.getSongIsLike(item?.id) ? 'favorite-rounded' : 'favorite-outline-rounded'
-              "
-            />
-          </n-icon>
-          <!-- 更多操作 -->
-          <n-icon
-            class="more mobile"
-            depth="3"
-            size="20"
-            @click.stop="
-              songListDrawerRef?.drawerOpen(data, item, songsIndex + index, sourceId, type)
-            "
-            @dblclick.stop
-          >
-            <SvgIcon icon="more" />
-          </n-icon>
-        </div>
-        <!-- 更新日期 -->
-        <n-text v-if="type === 'dj' && item.updateTime" class="update hidden" depth="3">
-          {{ djFormatDate(item.updateTime) }}
-        </n-text>
-        <!-- 播放量 -->
-        <n-text v-if="type === 'dj' && item.playCount" class="count hidden" depth="3">
-          {{ item.playCount }}次
-        </n-text>
-        <!-- 时长 -->
-        <n-text v-if="item.duration" class="duration hidden" depth="3">{{ item.duration }}</n-text>
-        <n-text v-else class="duration"> -- </n-text>
-        <!-- 大小 -->
-        <n-text v-if="item.size" class="size hidden" depth="3">{{ item.size }}M</n-text>
-      </n-card>
-      <!-- 分页 -->
-      <Pagination
-        v-if="data.length >= loadSize && showPagination"
-        :totalCount="data.length"
-        :pageNumber="pageNumber"
-        @pageNumberChange="pageNumberChange"
-      />
-      <!-- 右键菜单 -->
-      <SongListDropdown
-        ref="songListDropdownRef"
-        @playSong="playSong"
-        @delCloudSong="delCloudSong"
-        @deletePlaylistSong="deletePlaylistSong"
-        @delLocalSong="delLocalSong"
-      />
-      <!-- 移动端菜单 -->
-      <SongListDrawer
-        ref="songListDrawerRef"
-        @playSong="playSong"
-        @delCloudSong="delCloudSong"
-        @deletePlaylistSong="deletePlaylistSong"
-        @delLocalSong="delLocalSong"
-      />
-      <!-- 定位歌曲 -->
-      <Transition name="shrink" mode="out-in">
-        <n-card
-          v-if="isHasPlayingDom"
-          :bordered="false"
-          :content-style="{
-            padding: '0px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }"
-          class="scroll-to-song"
-          @click="checkHasPlaying('scroll')"
-        >
-          <n-icon size="26">
-            <SvgIcon icon="location" />
-          </n-icon>
-        </n-card>
       </Transition>
+      <!-- 右键菜单 -->
+      <SongListMenu
+        ref="songListMenuRef"
+        :hiddenCover="hiddenCover || settingStore.hiddenCovers.list"
+        @removeSong="removeSong"
+      />
+      <MobileSongMenu ref="mobileSongMenuRef" @removeSong="removeSong" />
+      <!-- 列表操作 -->
+      <Teleport to="body">
+        <Transition name="fade" mode="out-in">
+          <div v-if="floatToolShow" class="list-menu">
+            <n-float-button-group position="relative">
+              <n-float-button v-if="hasPlaySong >= 0" width="42" @click="scrollToCurrentSong">
+                <SvgIcon :size="22" name="Location" />
+              </n-float-button>
+              <n-float-button :class="{ hidden: scrollTop <= 100 }" width="42" @click="scrollToTop">
+                <SvgIcon :size="22" name="Up" />
+              </n-float-button>
+            </n-float-button-group>
+          </div>
+        </Transition>
+      </Teleport>
+      <!-- 拖拽浮动标签 -->
+      <Teleport to="body">
+        <Transition name="fade">
+          <div
+            v-if="isDragging && draggable && dragLabelData"
+            class="drag-label"
+            :style="{
+              top: `${dragLabelPosition.top}px`,
+              left: `${dragLabelPosition.left}px`,
+            }"
+          >
+            <n-text class="drag-label-name">{{ dragLabelData.name }}</n-text>
+          </div>
+        </Transition>
+      </Teleport>
     </div>
-    <!-- 空列表 -->
-    <n-empty
-      v-else-if="data === 'empty' || data?.[0] === 'empty'"
-      description="空空如也，怎么一首歌都没有啊"
-      style="margin-top: 60px"
-      size="large"
-    />
-    <!-- 错误 -->
-    <n-empty
-      v-else-if="data === 'error' || data?.[0] === 'error'"
-      description="列表获取出错，请重试"
-      style="margin-top: 60px"
-      size="large"
-    />
-    <!-- 加载动画 -->
-    <div v-else class="loading">
+    <!-- 列表加载 - 骨架屏 -->
+    <div v-else-if="loading" class="song-list loading">
       <n-skeleton :repeat="10" text />
     </div>
+    <!-- 空列表 -->
+    <n-empty v-else description="列表光秃秃的，啥都没有哦" size="large" class="song-list empty" />
   </Transition>
 </template>
 
-<script setup>
-import { storeToRefs } from "pinia";
-import { useRouter } from "vue-router";
-import { setCloudDel } from "@/api/cloud";
-import { addSongToPlayList } from "@/api/playlist";
-import { siteData, siteSettings, musicData, siteStatus } from "@/stores";
-import { initPlayer, fadePlayOrPause, addSongToNext } from "@/utils/Player";
-import { djFormatDate } from "@/utils/timeTools";
+<script setup lang="ts">
+import { SongType, SortField, SortOrder } from "@/types/main";
+import { useMusicStore, useStatusStore, useSettingStore } from "@/stores";
+import { isEmpty } from "lodash-es";
+import { sortFieldOptions, sortOrderOptions } from "@/utils/meta";
+import { usePlayerController } from "@/core/player/PlayerController";
+import { useMobile } from "@/composables/useMobile";
+import { useDragSort } from "@/composables/List/useDragSort";
+import SongListMenu from "@/components/Menu/SongListMenu.vue";
+import MobileSongMenu from "@/components/Menu/MobileSongMenu.vue";
+import VirtualScroll from "@/components/UI/VirtualScroll.vue";
 
-const router = useRouter();
-const music = musicData();
-const dataStore = siteData();
-const status = siteStatus();
-const settings = siteSettings();
-const { userData } = storeToRefs(dataStore);
-const { loadSize, playSearch, useMusicCache } = storeToRefs(settings);
-const { playList, playSongData, playSongSource } = storeToRefs(music);
-const { playIndex, playMode, playHeartbeatMode, playLoading } = storeToRefs(status);
-
-// eslint-disable-next-line no-unused-vars
-const props = defineProps({
-  // 列表类型
-  type: {
-    type: String,
-    default: "song",
+const props = withDefaults(
+  defineProps<{
+    /** 列表数据 */
+    data: SongType[];
+    /** 列表类型 */
+    type?: "song" | "radio";
+    /** 列表高度 */
+    height?: number | "auto";
+    /** 是否加载 */
+    loading?: boolean;
+    /** 加载更多 */
+    loadMore?: boolean;
+    /** 加载文本 */
+    loadingText?: string;
+    /** 隐藏专辑 */
+    hiddenAlbum?: boolean;
+    /** 隐藏封面 */
+    hiddenCover?: boolean;
+    /** 隐藏大小 */
+    hiddenSize?: boolean;
+    /** 隐藏滚动条 */
+    hiddenScrollbar?: boolean;
+    /** 禁用排序 */
+    disabledSort?: boolean;
+    /** 播放歌单 ID */
+    playListId?: number;
+    /** 是否为每日推荐 */
+    isDailyRecommend?: boolean;
+    /** 双击播放操作 */
+    doubleClickAction?: "all" | "add";
+    /** 列表版本 */
+    listVersion?: string | number;
+    /** 禁用高度过渡动画 */
+    disableHeightTransition?: boolean;
+    /** 是否可拖拽排序 */
+    draggable?: boolean;
+  }>(),
+  {
+    type: "song",
+    loadingText: "努力加载中...",
+    playListId: 0,
+    isDailyRecommend: false,
+    listVersion: 0,
   },
-  // 列表数据
-  data: {
-    type: [Array, String],
-    default: () => [],
-  },
-  // 列表 id
-  sourceId: {
-    type: [Number, String],
-    default: 0,
-  },
-  // 是否显示封面
-  showCover: {
-    type: Boolean,
-    default: true,
-  },
-  // 是否显示分页
-  showPagination: {
-    type: Boolean,
-    default: true,
-  },
-  // 是否显示特权
-  showPrivilege: {
-    type: Boolean,
-    default: true,
-  },
-  // 是否显示专辑
-  showAlbum: {
-    type: Boolean,
-    default: true,
-  },
-  // 是否显示表头
-  showTitle: {
-    type: Boolean,
-    default: true,
-  },
-});
-
-// 分页数据
-const pageNumber = ref(1);
-
-// 子组件
-const songListDrawerRef = ref(null);
-const songListDropdownRef = ref(null);
-
-// 当前索引
-const songsIndex = computed(() => {
-  const page = props.showPagination
-    ? pageNumber.value
-    : Number(router.currentRoute.value.query?.page) || 1;
-  return (page - 1) * loadSize.value;
-});
-
-// 正在播放元素
-const isHasPlayingDom = ref(null);
-
-// 检查是否有正在播放的歌曲
-const checkHasPlaying = (isScoll = null) => {
-  const songDom = document.querySelector(".songs.play");
-  // 滚动至元素
-  if (isScoll === "scroll" && songDom) {
-    songDom?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
-  isHasPlayingDom.value = songDom ? true : false;
-};
-
-// 播放歌曲
-const playSong = async (data, song, index) => {
-  console.log(data, song, index);
-  // 若开启了缓存且正在加载
-  if (useMusicCache.value && playLoading.value) {
-    $message.warning("歌曲正在缓冲中，请稍后");
-    return false;
-  }
-  // 更改模式
-  playMode.value = props.type === "song" ? "normal" : "dj";
-  // 检查当前页面
-  const isPage = router.currentRoute.value.matched?.[0].path || null;
-  // 是否关闭心动模式
-  if (isPage !== "/like-songs") playHeartbeatMode.value = false;
-  // 是否为当前播放歌曲
-  if (music.getPlaySongData?.id === song?.id) {
-    // 继续播放
-    fadePlayOrPause();
-  } else {
-    // 若为特殊状态
-    if (
-      (isPage === "/search" && !playSearch.value) ||
-      isPage === "/history" ||
-      playHeartbeatMode.value
-    ) {
-      console.log("仅播放当前歌曲");
-      addSongToNext(song, true);
-    } else {
-      // 添加播放列表
-      playList.value = data.slice();
-      // 更改播放索引
-      playIndex.value = index;
-    }
-    console.log("与当前播放歌曲不一致");
-    playSongData.value = song;
-    // 初始化播放器
-    await initPlayer(true);
-  }
-  // 附加来源
-  playSongSource.value = Number(props.sourceId);
-  // 检查是否有正在播放的歌曲
-  nextTick().then(() => checkHasPlaying());
-};
-
-// 页数变化
-const pageNumberChange = (page) => {
-  pageNumber.value = page;
-  nextTick().then(() => {
-    const mainLayout = document.getElementById("main-layout");
-    mainLayout?.scrollIntoView({ behavior: "smooth" });
-    checkHasPlaying();
-  });
-};
-
-// 检查是否可执行双击
-const checkCanClick = (data, item, index) => {
-  if (window.innerWidth > 700) return false;
-  playSong(data, item, index);
-};
-
-// 云盘歌曲删除
-const delCloudSong = (data, song, index) => {
-  console.log(data, song, index);
-  $dialog.warning({
-    title: "确认删除",
-    content: `确认从云盘中删除 ${song.name}？该操作无法撤销！`,
-    positiveText: "删除",
-    negativeText: "取消",
-    onPositiveClick: async () => {
-      const result = await setCloudDel(song.id);
-      if (result.code == 200) {
-        data.splice(index, 1);
-        $message.success("删除成功");
-      } else {
-        $message.error("删除失败，请重试");
-      }
-    },
-  });
-};
-
-// 歌单歌曲删除
-const deletePlaylistSong = (pid, song, data, index) => {
-  if (!pid || !song) return $message.error("无法正确定位到歌单，请重试");
-  $dialog.warning({
-    title: "确认删除",
-    content: `确认从歌单中移除 ${song.name}？该操作无法撤销！`,
-    positiveText: "删除",
-    negativeText: "取消",
-    onPositiveClick: async () => {
-      const result = await addSongToPlayList(pid, song?.id, "del");
-      if (result.status === 200) {
-        data.length === 1 ? data.splice(0, 1, "empty") : data.splice(index, 1);
-        $message.success("歌曲删除成功");
-      } else {
-        $message.error("歌曲删除失败，请重试");
-      }
-    },
-  });
-};
-
-// 本地歌曲删除
-const delLocalSong = (data, song, index) => {
-  $dialog.warning({
-    title: "确认删除",
-    content: `确认从本地磁盘中删除 ${song.name}？该操作无法撤销！`,
-    positiveText: "删除",
-    negativeText: "取消",
-    onPositiveClick: async () => {
-      console.log(data, song, index);
-      const result = await electron.ipcRenderer.invoke("deleteFile", song?.path);
-      if (result) {
-        data.length === 1 ? data.splice(0, 1, "empty") : data.splice(index, 1);
-        $message.success("歌曲删除成功");
-      } else {
-        $message.error("歌曲删除失败，请重试");
-      }
-    },
-  });
-};
-
-// 监听歌曲变化
-watch(
-  () => music.getPlaySongData?.id,
-  () => nextTick().then(() => checkHasPlaying()),
 );
 
-onMounted(() => {
-  checkHasPlaying();
+const emit = defineEmits<{
+  // 触底
+  reachBottom: [e: Event];
+  // 滚动
+  scroll: [e: Event];
+  // 删除歌曲
+  removeSong: [id: number[]];
+  // 拖拽重排序
+  reorder: [fromIndex: number, toIndex: number];
+}>();
+
+const musicStore = useMusicStore();
+const statusStore = useStatusStore();
+const settingStore = useSettingStore();
+const player = usePlayerController();
+const { isSmallScreen } = useMobile();
+
+// 列表元素
+const listRef = ref<InstanceType<typeof VirtualScroll> | null>(null);
+const songListRef = ref<HTMLElement | null>(null);
+
+// 拖拽排序
+const {
+  isDragging,
+  draggedIndex,
+  dropIndicator,
+  dragLabelData,
+  dragLabelPosition,
+  handlePointerDown,
+} = useDragSort({
+  virtualScrollRef: listRef,
+  itemCount: computed(() => props.data.length),
+  onReorder: (from, to) => emit("reorder", from, to),
+  paddingTop: 0,
+  triggerMode: "longpress",
+  longPressDelay: 300,
+});
+
+// 处理移动端单击播放
+const handleSongClick = (song: SongType) => {
+  if (isSmallScreen.value) {
+    handleSongPlay(song);
+  }
+};
+
+// 处理歌曲播放
+const handleSongPlay = (song: SongType) => {
+  if (props.doubleClickAction === "add") {
+    player.addNextSong(song, true);
+  } else {
+    player.updatePlayList(listData.value, song, props.playListId);
+  }
+};
+
+// 列表状态
+const scrollTop = ref<number>(0);
+const scrollIndex = ref<number>(0);
+
+// 悬浮工具
+const floatToolShow = ref<boolean>(true);
+
+// 右键菜单
+const songListMenuRef = ref<InstanceType<typeof SongListMenu> | null>(null);
+const mobileSongMenuRef = ref<InstanceType<typeof MobileSongMenu> | null>(null);
+
+const handleShowMenu = (e: MouseEvent, song: SongType, index: number) => {
+  if (isSmallScreen.value) {
+    mobileSongMenuRef.value?.open(song, index, props.playListId, props.isDailyRecommend);
+  } else {
+    songListMenuRef.value?.openDropdown(
+      e,
+      listData.value,
+      song,
+      index,
+      props.playListId,
+      props.isDailyRecommend,
+    );
+  }
+};
+
+// 列表数据
+const listData = computed<SongType[]>(() => {
+  if (props.disabledSort) return props.data;
+  // 若未启用排序或默认排序
+  if (statusStore.listSortField === "default" || statusStore.listSortOrder === "default") {
+    return props.data;
+  }
+
+  // 创建副本用于排序
+  const data = [...props.data];
+  const field = statusStore.listSortField;
+  const order = statusStore.listSortOrder;
+  const isAsc = order === "asc";
+
+  // 使用 Intl.Collator 进行排序，支持数字敏感排序 (numeric: true)
+  // 这解决了 1.mp3, 10.mp3, 2.mp3 的问题
+  const collator = new Intl.Collator("zh-CN", { numeric: true });
+
+  return data.sort((a, b) => {
+    let result = 0;
+    switch (field) {
+      case "title":
+        result = collator.compare(a.name || "", b.name || "");
+        break;
+      case "artist": {
+        const artistA = Array.isArray(a.artists)
+          ? a.artists[0]?.name || ""
+          : (a.artists as string) || "";
+        const artistB = Array.isArray(b.artists)
+          ? b.artists[0]?.name || ""
+          : (b.artists as string) || "";
+        result = collator.compare(artistA, artistB);
+        break;
+      }
+      case "album": {
+        const albumA = typeof a.album === "string" ? a.album : a.album?.name || "";
+        const albumB = typeof b.album === "string" ? b.album : b.album?.name || "";
+        result = collator.compare(albumA, albumB);
+        break;
+      }
+      case "trackNumber":
+        // 增加对 undefined/null 的处理，视为 0
+        result = (a.trackNumber || 0) - (b.trackNumber || 0);
+        break;
+      case "filename": {
+        const fileNameA = a.path?.split(/[\\/]/).pop() || "";
+        const fileNameB = b.path?.split(/[\\/]/).pop() || "";
+        result = collator.compare(fileNameA, fileNameB);
+        break;
+      }
+      case "duration":
+        result = (a.duration || 0) - (b.duration || 0);
+        break;
+      case "size":
+        result = (a.size || 0) - (b.size || 0);
+        break;
+      case "createTime":
+        result = (a.createTime || 0) - (b.createTime || 0);
+        break;
+      case "updateTime":
+        result = (a.updateTime || 0) - (b.updateTime || 0);
+        break;
+      default:
+        break;
+    }
+    return isAsc ? result : -result;
+  });
+});
+
+// 虚拟列表项类型
+type VirtualListItem =
+  | { type: "song"; data: SongType; key: number }
+  | { type: "footer"; data: null; key: string };
+
+// 虚拟列表数据（包含歌曲和 footer）
+const virtualListItems = computed<VirtualListItem[]>(() => {
+  const items: VirtualListItem[] = listData.value.map((song) => ({
+    type: "song" as const,
+    data: song,
+    key: song.id,
+  }));
+  // 如果有加载更多，添加 footer
+  if (props.loadMore !== undefined) {
+    items.push({
+      type: "footer" as const,
+      data: null,
+      key: "footer",
+    });
+  }
+  return items;
+});
+
+// 虚拟列表 key
+const listKey = computed(() => {
+  // 每日推荐
+  if (props.isDailyRecommend) {
+    return `daily-${musicStore.dailySongsData.timestamp || 0}`;
+  }
+  // 使用 playListId 作为主要 key
+  if (props.playListId) {
+    return `playlist-${props.playListId}-${statusStore.listSortField}-${statusStore.listSortOrder}`;
+  }
+  // 对于本地音乐和没有特定ID的列表，使用数据的哈希值确保唯一性
+  // 这样当数据内容变化时，key会改变，触发虚拟列表重新渲染
+  // const dataHash = props.data?.map((song) => song.id).join("-") || "";
+  // return `type-${props.type}-${dataHash}`;
+  return `list-${props.listVersion}-${props.type}-${statusStore.listSortField}-${statusStore.listSortOrder}`;
+});
+
+// 列表是否具有播放歌曲
+const hasPlaySong = computed(() => {
+  return listData.value.findIndex((item) => item.id === musicStore.playSong.id);
+});
+
+// 列表元素高度
+const { height: songListHeight, stop: stopCalcHeight } = useElementSize(songListRef);
+
+// 列表滚动
+const onScroll = (e: Event) => {
+  emit("scroll", e);
+  const target = e.target as HTMLElement;
+  const top = target.scrollTop;
+  scrollTop.value = top;
+  scrollIndex.value = Math.floor(top / 90);
+
+  // 触底检测
+  const scrollHeight = target.scrollHeight;
+  const clientHeight = target.clientHeight;
+  if (scrollHeight - top - clientHeight < 100 && !props.loading && props.loadMore) {
+    emit("reachBottom", e);
+  }
+};
+
+// 滚动到顶部
+const scrollToTop = () => {
+  listRef.value?.scrollToIndex(0);
+};
+
+// 滚动到当前播放歌曲
+const scrollToCurrentSong = () => {
+  if (hasPlaySong.value < 0) return;
+  // 内部滚动
+  listRef.value?.scrollToIndex(hasPlaySong.value);
+  // 自动高度时回退
+  nextTick(() => {
+    const el = listRef.value?.contentRef?.querySelector<HTMLElement>(
+      `[data-index="${hasPlaySong.value}"]`,
+    );
+    if (el) el.scrollIntoView({ block: "center" });
+  });
+};
+
+// 更新列表播放顺序
+const updatePlayListOrder = () => {
+  // 更新列表
+  if (musicStore.playPlaylistId === props.playListId) {
+    player.updatePlayList(listData.value, musicStore.playSong, props.playListId, {
+      showTip: false,
+      play: false,
+    });
+  }
+  // 滚动到当前播放歌曲或顶部
+  nextTick(() => {
+    if (hasPlaySong.value >= 0) {
+      listRef.value?.scrollToIndex(hasPlaySong.value);
+    } else {
+      listRef.value?.scrollToIndex(0);
+    }
+  });
+};
+
+// 排序更改
+const handleSortFieldChange = (val: SortField) => {
+  // 单击已选择的字段 -> 切换升降序
+  if (statusStore.listSortField === val && val !== "default") {
+    statusStore.listSortOrder = statusStore.listSortOrder === "asc" ? "desc" : "asc";
+  } else {
+    statusStore.listSortField = val;
+    // 如果切换到具体的字段且当前顺序是默认，自动切换到降序(对于时间相关)或升序(对于文本)
+    if (statusStore.listSortOrder === "default") {
+      if (val === "createTime" || val === "updateTime" || val === "duration") {
+        statusStore.listSortOrder = "desc";
+      } else {
+        statusStore.listSortOrder = "asc";
+      }
+    }
+  }
+  updatePlayListOrder();
+};
+
+const handleSortOrderChange = (val: SortOrder) => {
+  statusStore.listSortOrder = val;
+  updatePlayListOrder();
+};
+
+// 删除指定索引
+const removeSong = (id: number[]) => emit("removeSong", id);
+
+// keep-alive 处理
+onBeforeRouteLeave(() => {
+  floatToolShow.value = false;
+});
+
+onActivated(() => {
+  floatToolShow.value = true;
+  if (props.height === "auto") stopCalcHeight();
+  if (scrollIndex.value > 0) {
+    nextTick(() => {
+      listRef.value?.scrollToIndex(scrollIndex.value);
+    });
+  }
 });
 
 onBeforeUnmount(() => {
-  isHasPlayingDom.value = false;
+  stopCalcHeight();
+  floatToolShow.value = false;
 });
 </script>
 
 <style lang="scss" scoped>
 .song-list {
-  width: 100%;
-  .song-list-header {
+  height: 100%;
+  border-radius: 12px 0 0 12px;
+  overflow: hidden;
+  // 离场时脱离文档流，避免新旧内容同时存在时布局跳动
+  &.fade-leave-active {
+    position: absolute;
+    left: 0;
+    right: 0;
+    pointer-events: none;
+  }
+  .song-card {
+    padding-bottom: 12px;
+    // padding-right: 4px;
+  }
+  // 悬浮顶栏
+  .list-header {
+    width: 100%;
+    height: 40px;
     display: flex;
     flex-direction: row;
     align-items: center;
-    margin-bottom: 12px;
-    padding: 0 16px;
-    * {
-      box-sizing: border-box;
+    justify-content: space-between;
+    padding: 8px 12px;
+    // margin-right: 4px;
+    border: 1px solid transparent;
+    // background-color: var(--background-hex);
+    .n-text {
+      opacity: 0.6;
     }
     .num {
-      width: 30px;
-      margin-right: 16px;
-      text-align: center;
-    }
-    .info,
-    .album {
-      flex: 1;
-    }
-    .has-cover {
-      margin-right: 66px;
-    }
-    .control {
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
       width: 40px;
+      min-width: 40px;
+      font-weight: bold;
+      margin-right: 12px;
     }
-    .update {
-      width: 80px;
-      text-align: center;
-      margin-right: auto;
-    }
-    .count {
-      width: 120px;
-      text-align: center;
-    }
-    .duration {
-      width: 50px;
-      text-align: center;
-    }
-    .size {
-      width: 80px;
-      padding-right: 10px;
-      text-align: right;
-    }
-  }
-  .songs {
-    border-radius: 8px;
-    margin-bottom: 12px;
-    transition:
-      transform 0.3s,
-      border-color 0.3s,
-      box-shadow 0.3s;
-    cursor: pointer;
-    .cover {
-      width: 50px;
-      height: 50px;
-      min-width: 50px;
-      border-radius: 8px;
-      margin-right: 16px;
+    .title {
+      position: relative;
+      flex: 1;
       display: flex;
       align-items: center;
-      justify-content: center;
-      overflow: hidden;
-      .cover-img {
-        width: 100%;
-        height: 100%;
-        z-index: 1;
-        transition:
-          filter 0.3s,
-          transform 0.3s;
-        :deep(img) {
-          width: 100%;
+      padding: 4px 20px 4px 0;
+      cursor: pointer;
+      .sort {
+        margin-left: 6px;
+        &::after {
+          content: " )";
+        }
+        &::before {
+          content: "( ";
+        }
+      }
+      &.has-sort {
+        &::after {
+          content: "";
+          position: absolute;
           opacity: 0;
-          transition: opacity 0.35s ease-in-out;
-        }
-      }
-    }
-    .num {
-      width: 30px;
-      height: 30px;
-      min-width: 30px;
-      border-radius: 8px;
-      margin-right: 16px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .info {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      padding-right: 20px;
-      .title {
-        display: flex;
-        align-items: center;
-        flex-direction: row;
-        .name {
-          font-size: 16px;
-          font-weight: bold;
-          transition: color 0.3s;
-          -webkit-line-clamp: 2;
-          &:hover {
-            color: var(--main-color);
-          }
-        }
-        .n-tag {
-          margin-left: 8px;
-          height: 18px;
-          &.cloud {
-            padding: 0 10px;
-            align-items: center;
-            justify-content: center;
-            :deep(.n-tag__icon) {
-              margin-right: 0;
-              width: 100%;
-            }
-          }
-          &.mv {
-            cursor: pointer;
-          }
-        }
-      }
-      .artist {
-        margin-top: 2px;
-        font-size: 13px;
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 1;
-        overflow: hidden;
-        word-break: break-all;
-        .ar {
-          display: inline-flex;
+          top: 0;
+          left: -8px;
+          width: 100%;
+          height: 100%;
+          border-radius: 8px;
+          background-color: rgba(var(--primary), 0.08);
           transition: opacity 0.3s;
-          opacity: 0.6;
-          cursor: pointer;
-          &::after {
-            content: "/";
-            margin: 0 4px;
-          }
-          &:last-child {
-            &::after {
-              display: none;
-            }
-          }
-          &:hover {
-            opacity: 0.8;
-          }
         }
-      }
-      .alia {
-        margin-top: 2px;
-        font-size: 12px;
-        opacity: 0.8;
-      }
-    }
-    .album {
-      flex: 1;
-      padding-right: 20px;
-      transition: color 0.3s;
-      -webkit-line-clamp: 2;
-      &:hover {
-        color: var(--main-color);
-      }
-    }
-    .action {
-      width: 40px;
-      display: flex;
-      align-items: center;
-      justify-content: space-evenly;
-      .favorite {
-        padding-top: 1px;
-        transition: transform 0.3s;
-        cursor: pointer;
         &:hover {
-          transform: scale(1.15);
-        }
-        &:active {
-          transform: scale(1);
-        }
-      }
-      .more {
-        display: none;
-      }
-    }
-    .update {
-      width: 80px;
-      text-align: center;
-    }
-    .count {
-      width: 120px;
-      text-align: center;
-    }
-    .duration {
-      width: 50px;
-      text-align: center;
-    }
-    .size {
-      width: 80px;
-      text-align: right;
-    }
-    &.play {
-      background-color: var(--main-second-color);
-      border-color: var(--main-color);
-      a,
-      span,
-      .num {
-        color: var(--main-color) !important;
-      }
-      .artist {
-        .ar {
-          opacity: 0.8;
-          transition: opacity 0.3s;
-          &:hover {
+          &::after {
             opacity: 1;
           }
         }
       }
-      .album {
-        opacity: 0.8;
-        transition: opacity 0.3s;
-        &:hover {
-          opacity: 1;
-        }
+    }
+    .album {
+      flex: 1;
+      padding-right: 20px;
+    }
+    .actions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+    }
+    .meta {
+      width: 50px;
+      text-align: center;
+      &.size {
+        width: 60px;
+      }
+      &.date {
+        width: 80px;
       }
     }
-    &:last-child {
-      margin-bottom: 0;
-    }
-    &:hover {
-      border-color: var(--main-color);
-      box-shadow:
-        0 1px 2px -2px var(--main-boxshadow-color),
-        0 3px 6px 0 var(--main-boxshadow-color),
-        0 5px 12px 4px var(--main-boxshadow-hover-color);
-    }
-    &:active {
-      transform: scale(0.995);
-    }
   }
-  .scroll-to-song {
-    position: absolute;
-    width: 44px;
-    height: 44px;
-    right: calc(40px);
-    bottom: 100px;
-    border-radius: 50%;
-    background-color: var(--n-color-embedded-popover);
+  .virtual-list-wrapper {
+    height: 100%;
+    position: relative;
     transition:
+      height 0.3s,
       transform 0.3s,
       opacity 0.3s;
-    cursor: pointer;
-    &:active {
-      transform: scale(0.9);
+    // 离场时脱离文档流，避免新旧列表同时存在时布局跳动
+    &.fade-leave-active {
+      position: absolute;
+      left: 0;
+      right: 0;
+      pointer-events: none;
+    }
+    .sticky-header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
     }
   }
-  @media (max-width: 700px) {
-    .song-list-header,
-    .songs {
-      .hidden {
-        display: none;
-      }
+  // 加载更多
+  .load-more {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    margin: 20px 0 40px;
+    .n-spin-body {
+      --n-size: 20px;
     }
-    .songs {
-      .num {
-        font-size: 12px;
-        width: 28px;
-        height: 28px;
-        min-width: 28px;
-      }
-      .info {
-        .title {
-          .name {
-            font-size: 15px;
-          }
-        }
-        .artist {
-          font-size: 12px;
-        }
-      }
-      .action {
-        width: 60px;
-        justify-content: flex-end;
-        .more {
-          display: inline-block;
-          margin-left: 12px;
-        }
+    .n-divider {
+      margin: 0;
+      font-size: 14px;
+      opacity: 0.6;
+    }
+  }
+  // 加载
+  &.loading {
+    margin-top: 20px;
+    :deep(.n-skeleton) {
+      height: 72px;
+      margin-bottom: 12px;
+      border-radius: 12px;
+    }
+  }
+  // 空列表
+  &.empty {
+    margin-top: 60px;
+  }
+}
+.list-menu {
+  position: fixed;
+  right: 40px;
+  bottom: 120px;
+  z-index: 10;
+  pointer-events: none;
+  .n-float-button {
+    height: 42px;
+    border: 1px solid rgba(var(--primary), 0.28);
+    pointer-events: auto;
+    transition: opacity 0.3s;
+    &.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+  }
+}
+
+// 拖拽排序
+.song-node {
+  position: relative;
+
+  .drop-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background-color: var(--primary-hex);
+    border-radius: 2px;
+    z-index: 10;
+    pointer-events: none;
+
+    &.line-top {
+      top: 0;
+    }
+    &.line-bottom {
+      bottom: 0;
+    }
+  }
+
+  :deep(.song-card) {
+    transition:
+      opacity 0.2s,
+      transform 0.3s;
+
+    &.is-dragging {
+      opacity: 0.3;
+      transform: scale(0.98);
+      .song-content {
+        border-color: rgba(var(--primary), 0.5);
       }
     }
   }
 }
-.loading {
-  :deep(.n-skeleton) {
-    &:nth-of-type(1) {
-      margin-top: 0;
+
+:deep(.is-dragging-global) {
+  cursor: grabbing;
+
+  * {
+    cursor: grabbing;
+  }
+
+  .song-card {
+    pointer-events: none;
+  }
+}
+
+.drag-label {
+  position: fixed;
+  z-index: 9999;
+  padding: 8px 16px;
+  border-radius: 20px;
+  background-color: rgba(var(--primary), 0.15);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  transform: translate(12px, 12px);
+
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(var(--text-color), 0.3);
+}
+
+.sort-menu {
+  display: flex;
+  padding: 12px;
+  .group {
+    display: flex;
+    flex-direction: column;
+    .label {
+      font-size: 12px;
+      opacity: 0.6;
+      margin-bottom: 8px;
+      padding-left: 4px;
     }
-    height: 80px;
-    margin-top: 12px;
-    border-radius: 8px;
+    .n-radio-group {
+      width: 120px;
+      .n-radio {
+        --n-font-size: 13px;
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: background-color 0.3s;
+        &:hover {
+          background-color: var(--n-color-target);
+        }
+      }
+    }
   }
 }
 </style>
